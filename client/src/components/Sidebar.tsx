@@ -5,13 +5,16 @@ import { Tooltip } from '@/components/ui/tooltip'
 import { useConnectionStatus } from '@/hooks/useConnectionStatus'
 import { getWorkMode } from '@/services/transcription'
 
-const primaryNavItems = [
+const dailyNavItems = [
   { to: '/', icon: Home, label: '首页' },
   { to: '/history', icon: Clock, label: '历史' },
+]
+
+const configNavItems = [
   { to: '/voice-engine', icon: AudioLines, label: '语音引擎' },
+  { to: '/hotwords', icon: BookOpen, label: '热词' },
   { to: '/ai-instructions', icon: Wand2, label: 'AI 整理' },
   { to: '/ai-service', icon: Sparkles, label: 'AI 供应商' },
-  { to: '/hotwords', icon: BookOpen, label: '热词' },
 ]
 
 const footerNavItems = [
@@ -98,7 +101,14 @@ export default function Sidebar() {
   return (
     <nav className="flex w-48 flex-col border-r border-sidebar-border bg-sidebar py-4">
       <div className="flex-1 space-y-1 px-3">
-        {primaryNavItems.map(({ to, icon, label }) => (
+        {dailyNavItems.map(({ to, icon, label }) => (
+          <NavItem key={to} to={to} icon={icon} label={label} />
+        ))}
+
+        <div className="px-1 py-3">
+          <div className="h-px bg-[linear-gradient(to_right,transparent_0%,hsl(var(--sidebar-border))_5%,hsl(var(--sidebar-border))_95%,transparent_100%)]" />
+        </div>
+        {configNavItems.map(({ to, icon, label }) => (
           <NavItem key={to} to={to} icon={icon} label={label} />
         ))}
       </div>
