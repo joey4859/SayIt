@@ -2,6 +2,7 @@
 // 使用大模型录音文件极速版 HTTP API：一次请求即返回结果
 // 接口：POST https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash
 
+use super::doubao_protocol;
 use super::types::{AsrProviderConfig, AsrResult, TestResult};
 use std::time::Instant;
 
@@ -44,6 +45,7 @@ pub async fn transcribe(
     audio_pcm_b64: &str,
     sample_rate: u32,
     config: &AsrProviderConfig,
+    hotwords: &[String],
 ) -> Result<AsrResult, String> {
     // 解码 base64 PCM 数据
     let pcm_data = base64::Engine::decode(
@@ -69,6 +71,14 @@ pub async fn transcribe(
         &config.app_id
     };
 
+    let mut request_params = serde_json::json!({
+        "model_name": "bigmodel"
+    });
+    // 注入热词（如果有）
+    if let Some(ctx) = doubao_protocol::build_hotword_context(hotwords) {
+        request_params["context"] = serde_json::Value::String(ctx);
+    }
+
     let body = serde_json::json!({
         "user": {
             "uid": app_id
@@ -76,9 +86,7 @@ pub async fn transcribe(
         "audio": {
             "data": wav_b64
         },
-        "request": {
-            "model_name": "bigmodel"
-        }
+        "request": request_params
     });
 
     let client = reqwest::Client::new();

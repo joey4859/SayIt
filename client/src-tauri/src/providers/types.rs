@@ -64,6 +64,9 @@ pub struct CloudTranscribeRequest {
     pub audio_b64: String,
     pub sample_rate: u32,
     pub asr_config: AsrProviderConfig,
+    /// 热词列表（豆包等供应商通过 request.context 直传）
+    #[serde(default)]
+    pub hotwords: Vec<String>,
 }
 
 /// 云端 AI 校对请求（前端传入）

@@ -134,6 +134,7 @@ export class CloudAPIProvider implements TranscriptionProvider {
         await invoke('doubao_stream_open', {
           config: { provider: 'doubao_v2', api_key: asrApiKey, app_id: asrAppId },
           sampleRate: 16000,
+          hotwords: this.startOpts?.hotwords ?? [],
         })
         this.doubaoStreamReady = true
         addRuntimeEvent('info', 'cloud_api', '豆包流式：连接就绪')
@@ -278,7 +279,12 @@ export class CloudAPIProvider implements TranscriptionProvider {
 
         addRuntimeEvent('info', 'cloud_api', '开始 ASR', { provider: asrProvider, durationSec })
         const asrResult = await invoke<AsrResult>('cloud_transcribe', {
-          request: { audio_b64: audioB64, sample_rate: 16000, asr_config: asrConfig },
+          request: {
+            audio_b64: audioB64,
+            sample_rate: 16000,
+            asr_config: asrConfig,
+            hotwords: this.startOpts?.hotwords ?? [],
+          },
         })
         asrText = asrResult.text
         asrMs = asrResult.elapsed_ms

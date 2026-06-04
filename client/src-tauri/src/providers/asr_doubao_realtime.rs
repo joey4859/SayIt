@@ -20,8 +20,14 @@ static SESSION: once_cell::sync::Lazy<Arc<Mutex<Option<WsStream>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
 
 /// 打开豆包流式 ASR 会话：建立 WebSocket 连接并发送 client request
+///
+/// hotwords：热词列表，会通过 request.context 字段直传给服务端（流式输入模式最多 5000 词）
 #[tauri::command]
-pub async fn doubao_stream_open(config: AsrProviderConfig, sample_rate: u32) -> Result<(), String> {
+pub async fn doubao_stream_open(
+    config: AsrProviderConfig,
+    sample_rate: u32,
+    hotwords: Option<Vec<String>>,
+) -> Result<(), String> {
     // 关闭旧会话
     {
         let mut session = SESSION.lock().await;
@@ -51,6 +57,20 @@ pub async fn doubao_stream_open(config: AsrProviderConfig, sample_rate: u32) -> 
         .map_err(|e| format!("WebSocket 连接失败: {}", e))?;
 
     // 发送 full client request
+    let mut request_params = serde_json::json!({
+        "model_name": "bigmodel",
+        "enable_itn": true,
+        "enable_punc": true,
+        "result_type": "full",
+        "show_utterances": true
+    });
+    // 注入热词（如果有）
+    if let Some(words) = &hotwords {
+        if let Some(ctx) = doubao_protocol::build_hotword_context(words) {
+            request_params["context"] = serde_json::Value::String(ctx);
+        }
+    }
+
     let client_request = serde_json::json!({
         "user": { "uid": app_id },
         "audio": {
@@ -59,13 +79,7 @@ pub async fn doubao_stream_open(config: AsrProviderConfig, sample_rate: u32) -> 
             "bits": 16,
             "channel": 1
         },
-        "request": {
-            "model_name": "bigmodel",
-            "enable_itn": true,
-            "enable_punc": true,
-            "result_type": "full",
-            "show_utterances": true
-        }
+        "request": request_params
     });
 
     let frame = doubao_protocol::build_full_client_request(

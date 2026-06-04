@@ -158,3 +158,25 @@ pub fn parse_server_response(data: &[u8]) -> Result<ServerResponse, String> {
         error_code: 0,
     })
 }
+
+/// 构建热词 context 字符串（火山引擎 request.context 字段）
+///
+/// 热词直传，优先级高于自学习平台词表；流式输入模式(nostream)支持最多 5000 个词。
+/// 返回值是序列化后的 JSON 字符串（context 字段类型为 string，不是嵌套对象）。
+/// 形如：{"hotwords":[{"word":"热词1"},{"word":"热词2"}]}
+pub fn build_hotword_context(hotwords: &[String]) -> Option<String> {
+    let mut seen = std::collections::HashSet::new();
+    let words: Vec<serde_json::Value> = hotwords
+        .iter()
+        .map(|w| w.trim())
+        .filter(|w| !w.is_empty())
+        .filter(|w| seen.insert(w.to_string())) // 去重
+        .map(|w| serde_json::json!({ "word": w }))
+        .collect();
+
+    if words.is_empty() {
+        return None;
+    }
+
+    serde_json::to_string(&serde_json::json!({ "hotwords": words })).ok()
+}

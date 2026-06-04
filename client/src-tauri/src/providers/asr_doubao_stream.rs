@@ -14,6 +14,7 @@ pub async fn transcribe(
     audio_pcm_b64: &str,
     sample_rate: u32,
     config: &AsrProviderConfig,
+    hotwords: &[String],
 ) -> Result<AsrResult, String> {
     let pcm_data = base64::Engine::decode(
         &base64::engine::general_purpose::STANDARD,
@@ -51,6 +52,18 @@ pub async fn transcribe(
         .map_err(|e| format!("WebSocket 连接失败: {}", e))?;
 
     // 1. 发送 full client request
+    let mut request_params = serde_json::json!({
+        "model_name": "bigmodel",
+        "enable_itn": true,
+        "enable_punc": true,
+        "result_type": "full",
+        "show_utterances": true
+    });
+    // 注入热词（如果有）
+    if let Some(ctx) = doubao_protocol::build_hotword_context(hotwords) {
+        request_params["context"] = serde_json::Value::String(ctx);
+    }
+
     let client_request = serde_json::json!({
         "user": { "uid": app_id },
         "audio": {
@@ -59,13 +72,7 @@ pub async fn transcribe(
             "bits": 16,
             "channel": 1
         },
-        "request": {
-            "model_name": "bigmodel",
-            "enable_itn": true,
-            "enable_punc": true,
-            "result_type": "full",
-            "show_utterances": true
-        }
+        "request": request_params
     });
 
     let request_frame = doubao_protocol::build_full_client_request(

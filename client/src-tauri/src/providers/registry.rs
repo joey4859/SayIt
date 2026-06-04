@@ -52,6 +52,7 @@ pub async fn cloud_transcribe(request: CloudTranscribeRequest) -> Result<AsrResu
                 &request.audio_b64,
                 request.sample_rate,
                 config,
+                &request.hotwords,
             )
             .await
         }
@@ -60,6 +61,7 @@ pub async fn cloud_transcribe(request: CloudTranscribeRequest) -> Result<AsrResu
                 &request.audio_b64,
                 request.sample_rate,
                 config,
+                &request.hotwords,
             )
             .await
         }
