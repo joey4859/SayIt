@@ -22,7 +22,7 @@ export const DEFAULTS: Record<string, unknown> = {
   selectedMic: '', // 设备 ID，空字符串 = 系统默认
 
   // ── AI 校对 ──
-  aiEnabled: false, // 是否开启 AI 校对。可选: true | false
+  aiEnabled: true, // 是否开启 AI 校对。可选: true | false
   aiPromptAppend: '', // 全局附加 prompt
 
   // ── AI 供应商 ──

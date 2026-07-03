@@ -39,7 +39,7 @@ function normalizeAppPromptRule(raw: unknown, fallback?: AppPromptRule): AppProm
     appId,
     name,
     builtin: value.builtin === true || fallback?.builtin === true,
-    enabled: typeof value.enabled === 'boolean' ? value.enabled : fallback?.enabled ?? true,
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : fallback?.enabled ?? false,
     priority,
     presetId: String(value.presetId ?? fallback?.presetId ?? '').trim() || undefined,
     promptAppend: String(value.promptAppend ?? fallback?.promptAppend ?? '').trim(),

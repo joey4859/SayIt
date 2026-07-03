@@ -178,10 +178,20 @@ fn main() {
             hook.start(app.handle(), &ptt_str, &hf_str);
 
             // 设置窗口图标（用 ICO 文件，包含多尺寸帧，Windows 自动选最合适的）
+            // 并根据启动方式决定是否显示主窗口：
+            // 开机自启会带 --minimized 参数 → 保持隐藏，静默停留在托盘
+            // 用户手动打开则正常显示（窗口配置为 visible:false，需显式 show）
+            let launched_minimized = std::env::args().any(|arg| arg == "--minimized");
             if let Some(main_window) = app.get_webview_window("main") {
                 let ico_bytes = include_bytes!("../icons/icon.ico");
                 if let Ok(icon) = tauri::image::Image::from_bytes(ico_bytes) {
                     let _ = main_window.set_icon(icon);
+                }
+                if !launched_minimized {
+                    let _ = main_window.show();
+                    let _ = main_window.set_focus();
+                } else {
+                    log::info!("Launched with --minimized, staying hidden in tray");
                 }
             }
 
@@ -261,14 +271,26 @@ fn main() {
             {
                 use tauri_plugin_autostart::ManagerExt;
                 let storage: tauri::State<Storage> = app.state();
+                let autostart = app.autolaunch();
                 let already_set = storage.get("autoLaunchInitialized", None);
                 if already_set.is_null() || already_set.as_str() == Some("") {
-                    // 首次运行，注册开机自启并标记
-                    let autostart = app.autolaunch();
+                    // 首次运行，注册开机自启并标记（新注册已带 --minimized 参数）
                     let _ = autostart.enable();
                     let flag = serde_json::json!("true");
                     let _ = storage.set("autoLaunchInitialized", &flag);
+                    let _ = storage.set("autoLaunchArgsMigrated", &flag);
                     log::info!("Auto-launch enabled on first run");
+                } else {
+                    // 老用户迁移：旧自启项不带 --minimized 参数，重新注册一次以写入新参数
+                    let migrated = storage.get("autoLaunchArgsMigrated", None);
+                    if migrated.as_str() != Some("true") {
+                        if autostart.is_enabled().unwrap_or(false) {
+                            let _ = autostart.disable();
+                            let _ = autostart.enable();
+                            log::info!("Auto-launch re-registered with --minimized arg");
+                        }
+                        let _ = storage.set("autoLaunchArgsMigrated", &serde_json::json!("true"));
+                    }
                 }
             }
 
@@ -284,7 +306,7 @@ fn main() {
         // .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            Some(vec!["--minimized"]),
         ))
         .invoke_handler(tauri::generate_handler![
             // Store

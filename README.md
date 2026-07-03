@@ -170,7 +170,7 @@ SayIt/
 | 语音识别 | Qwen3-ASR + vLLM / 豆包 ASR / 千问 ASR / sherpa-onnx |
 | AI 润色 | DeepSeek / 通义千问 / Azure OpenAI / Ollama |
 | 部署 | Docker Compose、NVIDIA Container Toolkit |
-| 开发 | 整个项目使用 Claude Opus 4.6 开发 |
+| 开发 | 整个项目使用 Claude Opus 开发 |
 
 ## 开发
 
@@ -194,6 +194,18 @@ cd backend && uvicorn app.main:app --port 8000
 ```
 
 前置要求：Python 3.10+、NVIDIA GPU + CUDA
+
+## 交流反馈
+
+有任何问题、建议或想法，欢迎扫码加入用户反馈微信群，一起交流：
+
+<div align="center">
+
+<img src="docs/images/readme/SayIt%20用户反馈微信群.jpg" width="240" alt="SayIt 用户反馈微信群">
+
+*微信扫码加入 SayIt 用户反馈群*
+
+</div>
 
 ## 贡献
 

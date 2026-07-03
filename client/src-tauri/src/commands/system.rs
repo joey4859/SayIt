@@ -246,7 +246,11 @@ pub fn check_for_updates() -> Result<Value, String> {
 /// 下载更新安装包到临时目录
 #[tauri::command]
 pub async fn download_update(url: String) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    // 必须带 User-Agent：生产环境 AWS WAF 的 NoUserAgent_HEADER 规则会拦截无 UA 的请求（403）
+    let client = reqwest::Client::builder()
+        .user_agent(concat!("SayIt/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| format!("初始化下载客户端失败: {}", e))?;
     let resp = client
         .get(&url)
         .timeout(std::time::Duration::from_secs(300))
