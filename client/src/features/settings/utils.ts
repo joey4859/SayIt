@@ -1,61 +1,10 @@
 export type OverlayWaveTheme = 'black-white' | 'black-blue' | 'black-rainbow'
 
-const SINGLE_KEY_MAP: Record<string, string> = {
-  AltLeft: 'AltLeft',
-  AltRight: 'AltRight',
-  ControlLeft: 'ControlLeft',
-  ControlRight: 'ControlRight',
-  ShiftLeft: 'ShiftLeft',
-  ShiftRight: 'ShiftRight',
-  F1: 'F1',
-  F2: 'F2',
-  F3: 'F3',
-  F4: 'F4',
-  F5: 'F5',
-  F6: 'F6',
-  F7: 'F7',
-  F8: 'F8',
-  F9: 'F9',
-  F10: 'F10',
-  F11: 'F11',
-  F12: 'F12',
-  CapsLock: 'CapsLock',
-  Space: 'Space',
-}
-
-const SINGLE_KEY_DISPLAY: Record<string, string> = {
-  AltLeft: '左 Alt',
-  AltRight: '右 Alt',
-  ControlLeft: '左 Ctrl',
-  ControlRight: '右 Ctrl',
-  ShiftLeft: '左 Shift',
-  ShiftRight: '右 Shift',
-  F1: 'F1',
-  F2: 'F2',
-  F3: 'F3',
-  F4: 'F4',
-  F5: 'F5',
-  F6: 'F6',
-  F7: 'F7',
-  F8: 'F8',
-  F9: 'F9',
-  F10: 'F10',
-  F11: 'F11',
-  F12: 'F12',
-  CapsLock: 'CapsLock',
-  Space: '空格',
-}
+// 单键映射已收敛到 @/lib/shortcutKeys（单一数据源），这里透传导出以保持既有引用不变。
+export { resolveSingleKeyShortcut, getSingleKeyDisplay } from '@/lib/shortcutKeys'
 
 export function cleanMicLabel(label: string): string {
   return label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '').trim()
-}
-
-export function resolveSingleKeyShortcut(code: string): string | undefined {
-  return SINGLE_KEY_MAP[code]
-}
-
-export function getSingleKeyDisplay(value: string): string {
-  return SINGLE_KEY_DISPLAY[value] || value
 }
 
 export function eventToAccelerator(event: KeyboardEvent): string | null {

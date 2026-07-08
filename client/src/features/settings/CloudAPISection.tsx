@@ -15,6 +15,7 @@ const ASR_PROVIDERS = [
   { value: 'qwen_realtime', label: '千问 ASR 流式（qwen3-asr-flash-realtime）' },
   { value: 'qwen_omni_35_plus', label: '千问 3.5 Omni Plus（qwen3.5-omni-plus，ASR+AI）' },
   { value: 'qwen_omni_35_flash', label: '千问 3.5 Omni Flash（qwen3.5-omni-flash，ASR+AI）' },
+  { value: 'mimo', label: '小米 MiMo（mimo-v2.5-asr）' },
 ]
 
 interface TestResult {
@@ -72,6 +73,7 @@ const OMNI_PROMPT_PRESETS = [
 // 供应商按平台分组，同平台共享 API Key
 function asrKeyGroup(provider: string): string {
   if (provider === 'doubao_v2' || provider === 'doubao') return 'doubao'
+  if (provider === 'mimo') return 'mimo' // 小米 MiMo 用独立 api-key
   return 'qwen' // qwen, qwen_omni_flash, qwen_omni_plus 都用百炼 key
 }
 
@@ -87,6 +89,8 @@ function checkAsrKeyFormat(provider: string, key: string): string {
     if (k.length !== 32) {
       return `豆包 Access Token 通常为 32 位（当前 ${k.length} 位），请确认是否正确`
     }
+  } else if (provider === 'mimo') {
+    // 小米 MiMo API Key 无公开固定格式约定，不做格式校验
   } else {
     // 百炼平台 API Key：通常以 sk- 开头
     if (!/^sk-/.test(k)) {
@@ -118,20 +122,11 @@ export default function CloudAPISection() {
   const [asrMessage, setAsrMessage] = useState('')
   const [omniSystemPrompt, setOmniSystemPrompt] = useState(DEFAULT_OMNI_PROMPT)
 
-  // 加载指定平台的 ASR key
+  // 加载指定平台的 ASR key（每个供应商分组独立，不回退到全局，避免带入其它供应商的 key）
   async function loadAsrKeys(provider: string) {
     const group = asrKeyGroup(provider)
-    // 先尝试读分组 key，fallback 到旧的全局 key（向后兼容）
-    const groupKey = await getSetting(`cloudAsr.${group}.apiKey`, '') as string
-    const groupAppId = await getSetting(`cloudAsr.${group}.appId`, '') as string
-    if (groupKey) {
-      setAsrApiKey(groupKey)
-      setAsrAppId(groupAppId)
-    } else {
-      // 向后兼容：读旧的全局 key
-      setAsrApiKey(await getSetting('cloudAsr.apiKey', '') as string)
-      setAsrAppId(await getSetting('cloudAsr.appId', '') as string)
-    }
+    setAsrApiKey(await getSetting(`cloudAsr.${group}.apiKey`, '') as string)
+    setAsrAppId(await getSetting(`cloudAsr.${group}.appId`, '') as string)
   }
 
   useEffect(() => {
@@ -141,6 +136,16 @@ export default function CloudAPISection() {
   async function loadSettings() {
     const provider = await getSetting('cloudAsr.provider', 'doubao_v2') as string
     setAsrProvider(provider)
+    // 一次性迁移：老版本只有全局 key，迁到「当前供应商」的分组，升级后不丢 key，也不污染其它供应商
+    const group = asrKeyGroup(provider)
+    const existingGroupKey = await getSetting(`cloudAsr.${group}.apiKey`, '') as string
+    if (!existingGroupKey) {
+      const legacyKey = await getSetting('cloudAsr.apiKey', '') as string
+      if (legacyKey) {
+        await setSetting(`cloudAsr.${group}.apiKey`, legacyKey)
+        await setSetting(`cloudAsr.${group}.appId`, await getSetting('cloudAsr.appId', '') as string)
+      }
+    }
     await loadAsrKeys(provider)
     setOmniSystemPrompt(await getSetting('cloudAsr.omniSystemPrompt', DEFAULT_OMNI_PROMPT) as string)
   }
@@ -154,18 +159,12 @@ export default function CloudAPISection() {
       const group = asrKeyGroup(newProvider)
       const groupKey = await getSetting(`cloudAsr.${group}.apiKey`, '') as string
       const groupAppId = await getSetting(`cloudAsr.${group}.appId`, '') as string
-      if (groupKey) {
-        setAsrApiKey(groupKey)
-        setAsrAppId(groupAppId)
-        // 自动同步到全局 key，这样 CloudAPIProvider 能读到
-        await setSetting('cloudAsr.apiKey', groupKey)
-        await setSetting('cloudAsr.appId', groupAppId)
-      } else {
-        const globalKey = await getSetting('cloudAsr.apiKey', '') as string
-        const globalAppId = await getSetting('cloudAsr.appId', '') as string
-        setAsrApiKey(globalKey)
-        setAsrAppId(globalAppId)
-      }
+      // 只显示该供应商自己的 key（未配置则为空），并同步到全局供运行时读取，
+      // 空也要写空，避免把上一个供应商的 key 带过来。
+      setAsrApiKey(groupKey)
+      setAsrAppId(groupAppId)
+      await setSetting('cloudAsr.apiKey', groupKey)
+      await setSetting('cloudAsr.appId', groupAppId)
     })()
   }
 
@@ -226,8 +225,8 @@ export default function CloudAPISection() {
                 ))}
               </select>
             </div>
-            {/* 豆包：App ID 在 API Key 前面 */}
-            {asrProvider !== 'qwen' && !asrProvider.startsWith('qwen_omni') && (
+            {/* 豆包：App ID 在 API Key 前面（千问/Omni/MiMo 不需要 App ID） */}
+            {asrProvider !== 'qwen' && asrProvider !== 'mimo' && !asrProvider.startsWith('qwen_omni') && (
             <div>
               <label className="mb-1 block text-sm text-muted-foreground">App ID</label>
               <input
@@ -253,7 +252,7 @@ export default function CloudAPISection() {
                   <PasswordInput
                     value={asrApiKey}
                     onChange={setAsrApiKey}
-                    placeholder={asrProvider === 'doubao_v2' ? '输入火山引擎 Access Token' : '输入百炼平台 API Key'}
+                    placeholder={asrProvider === 'doubao_v2' ? '输入火山引擎 Access Token' : asrProvider === 'mimo' ? '输入小米 MiMo API Key' : '输入百炼平台 API Key'}
                     className={inputClass}
                   />
                 </div>

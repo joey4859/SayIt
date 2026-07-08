@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { FolderOpen, Copy, Check } from 'lucide-react'
+import { FolderOpen, Copy, Check, Zap, CheckCircle2, X, type LucideIcon } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -29,6 +29,10 @@ interface ModelInfo {
   total_size_bytes: number
   languages: string[]
   sources: DownloadSource[]
+  archive_url?: string
+  speed?: number
+  accuracy?: number
+  recommended?: boolean
 }
 
 interface LocalModelInfo {
@@ -56,6 +60,23 @@ function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(0)} MB`
   return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+}
+
+/** 速度/准确度评级：10 分制进度条（图标 + 单色 + 小数分数） */
+function Rating({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
+  const pct = Math.max(0, Math.min(100, (value / 10) * 100))
+  return (
+    <div className="flex items-center gap-1.5">
+      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="shrink-0 text-[11px] text-muted-foreground">{label}</span>
+      <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
+        <div className="h-full rounded-full bg-foreground/60 transition-all" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="shrink-0 text-[11px] font-medium tabular-nums text-foreground/80">
+        {value.toFixed(1)}
+      </span>
+    </div>
+  )
 }
 
 function CopyLink({ url, label }: { url: string; label: string }) {
@@ -89,7 +110,15 @@ function OfflineGuideDialog({ models, onClose }: { models: ModelInfo[]; onClose:
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="w-[520px] max-h-[80vh] overflow-y-auto rounded-xl border bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="relative w-[520px] max-h-[80vh] overflow-y-auto rounded-xl border bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="关闭"
+          className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
         <h3 className="text-base font-semibold">离线下载指引</h3>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
           从下方复制链接，在浏览器中下载文件，然后放到对应的模型文件夹中。
@@ -122,8 +151,16 @@ function OfflineGuideDialog({ models, onClose }: { models: ModelInfo[]; onClose:
         {/* 模型文件链接 */}
         <div className="mt-4 space-y-4">
           {models.map((model) => {
-            const source = model.sources[selectedSource]
-            if (!source) return null
+            // 某模型没有当前标签对应的源时，回退到它的第一个源（如 Qwen3 仅 ModelScope）
+            const source = model.sources[selectedSource] ?? model.sources[0]
+            const isArchive = !source && !!model.archive_url
+            if (!source && !isArchive) return null
+            // GitHub 地址用国内代理加速手动下载
+            const archiveUrl = model.archive_url
+              ? (model.archive_url.startsWith('https://github.com/')
+                  ? `https://gh-proxy.com/${model.archive_url}`
+                  : model.archive_url)
+              : ''
             return (
               <div key={model.id}>
                 <div className="mb-2 flex items-center gap-2">
@@ -140,18 +177,24 @@ function OfflineGuideDialog({ models, onClose }: { models: ModelInfo[]; onClose:
                   </Tooltip>
                 </div>
                 <div className="space-y-1.5">
-                  {source.files.map((file) => (
-                    <CopyLink key={file.name} url={file.url} label={file.name} />
-                  ))}
+                  {source ? (
+                    source.files.map((file) => (
+                      <CopyLink key={file.name} url={file.url} label={file.name} />
+                    ))
+                  ) : (
+                    <>
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        压缩包，下载后解压到上面的模型文件夹（解压出 .onnx 等文件直接放入该目录即可）。
+                      </p>
+                      <CopyLink url={archiveUrl} label="模型压缩包 (.tar.bz2)" />
+                    </>
+                  )}
                 </div>
               </div>
             )
           })}
         </div>
 
-        <div className="mt-5 flex justify-end">
-          <Button size="sm" variant="outline" onClick={onClose}>关闭</Button>
-        </div>
       </div>
     </div>
   )
@@ -164,9 +207,9 @@ function OfflineGuide({ models }: { models: ModelInfo[] }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-3 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        className="mt-3 text-xs text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground/60"
       >
-        无法在线下载？查看离线下载指引
+        下载太慢或失败？查看手动下载指引
       </button>
       {open && <OfflineGuideDialog models={models} onClose={() => setOpen(false)} />}
     </>
@@ -361,6 +404,9 @@ export default function LocalModeSection() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium">{model.name}</span>
+                      {model.recommended && (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">推荐</span>
+                      )}
                       <span className="text-xs text-muted-foreground">
                         {model.total_size_bytes > 0 ? formatSize(model.total_size_bytes) : ''}
                       </span>
@@ -369,6 +415,12 @@ export default function LocalModeSection() {
                       )}
                     </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">{model.description}</p>
+                    {(model.speed || model.accuracy) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1.5">
+                        {model.speed ? <Rating icon={Zap} label="速度" value={model.speed} /> : null}
+                        {model.accuracy ? <Rating icon={CheckCircle2} label="准确度" value={model.accuracy} /> : null}
+                      </div>
+                    )}
                     {isDownloading && progress && (
                       <div className="mt-2">
                         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">

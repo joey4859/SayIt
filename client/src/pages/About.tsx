@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Github, Download, Loader2, CheckCircle } from 'lucide-react'
 import { open as shellOpen } from '@tauri-apps/plugin-shell'
 import { useUpdateStatus } from '@/features/update/useUpdateStatus'
+import { RELEASE_HIGHLIGHTS } from '@/features/update/releaseHighlights'
 import appIcon from '@/assets/icon-128.png'
 
 function formatTimestamp(value: number | null) {
@@ -56,6 +57,7 @@ export default function About() {
 
           {/* 更新 */}
           <div className="mt-5 border-t border-border pt-5">
+            <h3 className="mb-3 text-sm font-medium">软件更新</h3>
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 {updateStatusText && (
@@ -108,6 +110,21 @@ export default function About() {
               </div>
             </div>
           </div>
+
+          {/* 本次更新 */}
+          {RELEASE_HIGHLIGHTS.version === currentVersion && RELEASE_HIGHLIGHTS.items.length > 0 && (
+            <div className="mt-6">
+              <h3 className="mb-3 text-sm font-medium">本次更新 · v{RELEASE_HIGHLIGHTS.version}</h3>
+              <ul className="space-y-1.5">
+                {RELEASE_HIGHLIGHTS.items.map((item, index) => (
+                  <li key={index} className="flex gap-2 text-sm text-muted-foreground">
+                    <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

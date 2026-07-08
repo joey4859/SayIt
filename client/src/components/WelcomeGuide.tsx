@@ -6,15 +6,9 @@ import { getWorkMode } from '@/services/transcription'
 import { healthCheck } from '@/services/api'
 import { setPttSuppressed } from '@/services/recorder'
 import * as bridge from '@/services/bridge'
+import { isSingleKeySetting, getSingleKeyDisplay } from '@/lib/shortcutKeys'
+import { refreshPTTSetting } from '@/services/webviewKeyboardFallback'
 import appIcon from '@/assets/icon-128.png'
-
-const KEY_MAP: Record<string, string> = {
-  AltLeft: '左 Alt', AltRight: '右 Alt',
-  ControlLeft: '左 Ctrl', ControlRight: '右 Ctrl',
-  ShiftLeft: '左 Shift', ShiftRight: '右 Shift',
-  MetaLeft: '左 Win', MetaRight: '右 Win',
-  Space: '空格', CapsLock: 'Caps Lock',
-}
 
 /** 简化键盘布局，高亮当前快捷键 */
 function KeyboardHint({ activeKey, pressed }: { activeKey: string; pressed?: boolean }) {
@@ -100,7 +94,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
     getSetting('shortcutHandsFree', 'AltRight').then((k) => {
       const key = k as string
       setHfKey(key)
-      setHfLabel(KEY_MAP[key] || key)
+      setHfLabel(getSingleKeyDisplay(key))
       hfKeyRef.current = key
     })
     const mode = getWorkMode()
@@ -118,7 +112,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
     const pressedKeyCodeRef = { current: '' } // 当前按住的键
 
     const confirmKey = (code: string) => {
-      const label = KEY_MAP[code] || code
+      const label = getSingleKeyDisplay(code)
       // 保存到 ref，避免 state 更新触发 effect 重启
       hfKeyRef.current = code
       settingsDirtyRef.current = true
@@ -143,7 +137,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
     const onDown = (e: KeyboardEvent) => {
       e.preventDefault()
       const code = e.code
-      if (KEY_MAP[code] && pressedKeyCodeRef.current !== code) {
+      if (isSingleKeySetting(code) && pressedKeyCodeRef.current !== code) {
         confirmKey(code)
       }
     }
@@ -165,7 +159,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
     const unlistenPttDown = bridge.listen('ptt-down', (event: unknown) => {
       const payload = event as { payload?: { pttSetting?: string } }
       const setting = payload?.payload?.pttSetting
-      if (setting && KEY_MAP[setting] && pressedKeyCodeRef.current !== setting) {
+      if (setting && isSingleKeySetting(setting) && pressedKeyCodeRef.current !== setting) {
         confirmKey(setting)
       }
     })
@@ -189,6 +183,8 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
         void (async () => {
           await setSetting('shortcutHandsFree', hfKeyRef.current)
           bridge.notifyShortcutsChanged()
+          // 同步刷新 webview 回退缓存，否则向导内（SayIt 窗口聚焦）测试时新键不生效
+          await refreshPTTSetting()
         })()
       }
     }
@@ -200,13 +196,14 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
     const handler = (e: KeyboardEvent) => {
       e.preventDefault()
       const code = e.code
-      const label = KEY_MAP[code]
-      if (label) {
+      if (isSingleKeySetting(code)) {
         setHfKey(code)
-        setHfLabel(label)
+        setHfLabel(getSingleKeyDisplay(code))
         void (async () => {
           await setSetting('shortcutHandsFree', code)
           bridge.notifyShortcutsChanged()
+          // 同步刷新 webview 回退缓存，否则向导内测试时新键不生效
+          await refreshPTTSetting()
         })()
       }
       setListeningKey(false)

@@ -11,31 +11,7 @@
 
 import { emit } from '@tauri-apps/api/event'
 import { getSetting } from './store'
-
-// PTT setting 值直接对应 DOM KeyboardEvent.code
-const SETTING_TO_CODE: Record<string, string> = {
-  AltLeft: 'AltLeft',
-  AltRight: 'AltRight',
-  ControlLeft: 'ControlLeft',
-  ControlRight: 'ControlRight',
-  ShiftLeft: 'ShiftLeft',
-  ShiftRight: 'ShiftRight',
-  CapsLock: 'CapsLock',
-  Space: 'Space',
-  F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4',
-  F5: 'F5', F6: 'F6', F7: 'F7', F8: 'F8',
-  F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
-}
-
-const SETTING_TO_VK: Record<string, number> = {
-  AltLeft: 0xA4, AltRight: 0xA5,
-  ControlLeft: 0xA2, ControlRight: 0xA3,
-  ShiftLeft: 0xA0, ShiftRight: 0xA1,
-  CapsLock: 0x14, Space: 0x20,
-  F1: 0x70, F2: 0x71, F3: 0x72, F4: 0x73,
-  F5: 0x74, F6: 0x75, F7: 0x76, F8: 0x77,
-  F9: 0x78, F10: 0x79, F11: 0x7A, F12: 0x7B,
-}
+import { SETTING_TO_VK, settingToCode } from '@/lib/shortcutKeys'
 
 // PTT Lab 固定使用右 Ctrl
 const PTT_LAB_CODE = 'ControlRight'
@@ -161,7 +137,7 @@ export async function refreshPTTSetting() {
     pttSetting = 'AltLeft'
     console.warn('[webview-kb] failed to load PTT setting, using fallback:', error)
   }
-  pttCode = SETTING_TO_CODE[pttSetting] || ''
+  pttCode = settingToCode(pttSetting)
   pttKeyDown = false
 
   try {
@@ -170,7 +146,7 @@ export async function refreshPTTSetting() {
   } catch {
     hfSetting = 'AltRight'
   }
-  hfCode = SETTING_TO_CODE[hfSetting] || ''
+  hfCode = settingToCode(hfSetting)
   hfKeyDown = false
 
   console.log('[webview-kb] PTT setting refreshed:', pttSetting, '→ code:', pttCode)

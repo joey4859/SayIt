@@ -20,6 +20,7 @@ export const DEFAULTS: Record<string, unknown> = {
 
   // ── 麦克风 ──
   selectedMic: '', // 设备 ID，空字符串 = 系统默认
+  muteSystemAudioWhileRecording: false, // 按住说话期间静音系统其他声音（防外放被麦克风回采）。默认关闭
 
   // ── AI 校对 ──
   aiEnabled: true, // 是否开启 AI 校对。可选: true | false
@@ -32,7 +33,7 @@ export const DEFAULTS: Record<string, unknown> = {
   'cloudAi.model': '',
 
   // ── ASR（云 API）──
-  'cloudAsr.provider': 'doubao_v2', // 可选: 'doubao_v2' | 'qwen_realtime' | 'qwen_omni' | 'qwen_omni_turbo'
+  'cloudAsr.provider': 'doubao_v2', // 可选: 'doubao_v2' | 'qwen' | 'qwen_realtime' | 'qwen_omni' | 'qwen_omni_turbo' | 'mimo'
   'cloudAsr.apiKey': '',
   'cloudAsr.appId': '', // 豆包需要
   'cloudAsr.omniSystemPrompt': '', // 千问 Omni 模式的 system prompt

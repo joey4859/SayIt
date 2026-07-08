@@ -193,6 +193,21 @@ export class OverlayService {
     bridge.hideOverlay()
   }
 
+  /** 快捷键切换润色模式后，用悬浮窗短暂提示当前模式名，约 1.6s 后自动隐藏。 */
+  showPresetSwitched(name: string) {
+    bridge.updateOverlay({
+      state: 'toast',
+      toastText: `已切换到「${name}」`,
+      ...this.getCommonPayload(),
+    })
+    bridge.showOverlay()
+    this.clearFallbackHideTimer()
+    this.fallbackHideId = setTimeout(() => {
+      bridge.hideOverlay()
+      this.clearFallbackHideTimer()
+    }, 1600)
+  }
+
   /** 显示错误信息，几秒后自动隐藏 */
   showError(message: string) {
     bridge.updateOverlay({

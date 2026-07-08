@@ -1,11 +1,14 @@
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { BUILTIN_PRESETS, type PromptPreset } from '@/services/store'
+import { ComboShortcutInput } from './ShortcutInputs'
+import { displayAccelerator } from './utils'
 
 export default function PromptPresetSection({
   presets,
   activePresetId,
   editingPreset,
+  presetShortcuts,
   onSelectPreset,
   onStartNewPreset,
   onStartEditing,
@@ -13,10 +16,12 @@ export default function PromptPresetSection({
   onCancelEditing,
   onSavePreset,
   onDeletePreset,
+  onSetPresetShortcut,
 }: {
   presets: PromptPreset[]
   activePresetId: string
   editingPreset: PromptPreset | null
+  presetShortcuts: Record<string, string>
   onSelectPreset: (id: string) => void
   onStartNewPreset: () => void
   onStartEditing: (preset: PromptPreset) => void
@@ -24,6 +29,7 @@ export default function PromptPresetSection({
   onCancelEditing: () => void
   onSavePreset: (preset: PromptPreset) => void
   onDeletePreset: (id: string) => void
+  onSetPresetShortcut: (presetId: string, accelerator: string) => void
 }) {
   return (
     <Card>
@@ -67,6 +73,11 @@ export default function PromptPresetSection({
                       <p className="text-sm font-medium">{preset.name}</p>
                       {preset.builtin && (
                         <span className="rounded border px-1 text-xs text-muted-foreground">内置</span>
+                      )}
+                      {presetShortcuts[preset.id] && (
+                        <span className="rounded border border-primary/30 bg-primary/5 px-1.5 text-xs text-muted-foreground">
+                          {displayAccelerator(presetShortcuts[preset.id]).join('+')}
+                        </span>
                       )}
                     </div>
                     <p className="truncate text-xs text-muted-foreground">{preset.systemPrompt.slice(0, 60)}...</p>
@@ -127,6 +138,16 @@ export default function PromptPresetSection({
                 placeholder="定义 AI 的角色、行为和处理规则..."
                 rows={8}
                 className="w-full resize-none rounded-md border border-input-border bg-input-bg px-3 py-2 text-xs leading-normal"
+              />
+            </div>
+
+            <div className="border-t border-border/60 pt-3">
+              <ComboShortcutInput
+                value={presetShortcuts[editingPreset.id] || ''}
+                onChange={(accel) => onSetPresetShortcut(editingPreset.id, accel)}
+                label="快捷键（可选）"
+                description="设置组合键随时切换到此模式，如 Alt+1、Alt+2（需含修饰键）"
+                comboOnly
               />
             </div>
 

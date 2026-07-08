@@ -17,14 +17,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .admin import _public_router as admin_public_router, router as admin_router
 from .asr import ASREngine
 from .config import load_config
 from .db import Database
 from .diagnostics import create_upload_token, router as diagnostics_router
 from .llm import LLMEngine
 from .logging_setup import attach_database_log_handler, bind_log_context, configure_logging, reset_log_context
-from .recorder import Recorder
 from .ratelimit import RateLimitMiddleware
 from .releases import read_public_download, read_release_manifest, resolve_release_file
 from .telemetry import TelemetryService
@@ -36,15 +34,22 @@ logger = logging.getLogger("sayit")
 asr_engine: ASREngine | None = None
 llm_engine: LLMEngine | None = None
 web_demo_llm_engine: LLMEngine | None = None
-recorder: Recorder | None = None
 database: Database | None = None
 telemetry_service: TelemetryService | None = None
 _web_demo_active_by_ip: dict[str, int] = defaultdict(int)
 _active_ws_count: int = 0
 _active_ws_ids: set[str] = set()
-_ws_by_ip: dict[str, int] = defaultdict(int)
+# 每个真实客户端 IP -> 该 IP 当前存活连接的 cid 集合（用集合而非整数，计数由存活连接派生，永不漂移）
+_ws_by_ip: dict[str, set[str]] = defaultdict(set)
 _MAX_WS_TOTAL = 200
 _MAX_WS_PER_IP = 10
+# 接收空闲超时：客户端每 30s 发一次 ping；超过此时长无任何消息即视为死连接并回收，
+# 避免半开/异常掉线的连接长期占用 per-IP 配额（不再依赖 OS TCP 超时，可能长达几分钟）。
+_WS_IDLE_TIMEOUT_SEC = 90
+# WebSocket 关闭码：不同拒绝/关闭原因用不同 code，客户端与日志据此区分排查
+_WS_CLOSE_SERVER_FULL = 1013     # 服务器整体到达容量上限（标准“稍后再试”）
+_WS_CLOSE_PER_IP_LIMIT = 4029    # 该客户端 IP 并发连接过多（对应 HTTP 429 语义）
+_WS_CLOSE_IDLE = 4000            # 服务端回收空闲/疑似死连接
 _MAX_PCM_BYTES = 10 * 1024 * 1024  # 10MB ≈ 5 min of 16kHz 16-bit mono
 
 
@@ -59,15 +64,13 @@ def _llm_model_name(profile) -> str:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    global asr_engine, llm_engine, web_demo_llm_engine, recorder, database, telemetry_service
+    global asr_engine, llm_engine, web_demo_llm_engine, database, telemetry_service
 
     database = Database(cfg.telemetry.db_path, backend=cfg.telemetry.db_backend)
     database.initialize()
     attach_database_log_handler(database)
     telemetry_service = TelemetryService(cfg, database)
     app.state.telemetry = telemetry_service
-
-    recorder = Recorder(cfg)
     logger.info("Telemetry ready db=%s", cfg.telemetry.db_path)
 
     try:
@@ -108,7 +111,6 @@ async def _lifespan(app: FastAPI):
     llm_status = f"{cfg.llm.provider} / {_llm_model_name(cfg.llm)}" if cfg.llm.enabled and llm_engine else "disabled"
     web_llm_status = f"{cfg.web_demo.llm.provider} / {_llm_model_name(cfg.web_demo.llm)}" if cfg.web_demo.llm.enabled and web_demo_llm_engine else "disabled"
     demo_status = f"enabled (LLM: {web_llm_status})" if cfg.web_demo.enabled else "disabled"
-    admin_pw_warning = " (⚠ default password)" if cfg.admin.password == "sayit" else ""
 
     logger.info(
         "\n"
@@ -118,17 +120,13 @@ async def _lifespan(app: FastAPI):
         "  │ ASR:   %-34s │\n"
         "  │ LLM:   %-34s │\n"
         "  │ Demo:  %-34s │\n"
-        "  │ Admin: %-34s │\n"
         "  │ HTTP:  %-34s │\n"
         "  └──────────────────────────────────────────┘",
         f"{cfg.asr.engine} ({cfg.asr.model})",
         llm_status,
         demo_status,
-        f"{cfg.admin.username}:***{admin_pw_warning}",
         f":{cfg.server.port}",
     )
-    if cfg.admin.password == "sayit":
-        logger.warning("Admin is using the DEFAULT password. Set SAYIT_ADMIN_PASSWORD to change it.")
     if cfg.llm.enabled and not llm_engine:
         logger.warning("LLM is configured but failed to initialize. Check API keys and provider settings.")
 
@@ -147,8 +145,6 @@ async def _lifespan(app: FastAPI):
 app = FastAPI(title="SayIt", lifespan=_lifespan)
 app.state.config = cfg
 app.include_router(diagnostics_router)
-app.include_router(admin_public_router)
-app.include_router(admin_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -321,6 +317,22 @@ def _client_ip(ws: WebSocket) -> tuple[str | None, str | None]:
     direct = ws.client.host if ws.client else None
     forwarded_for = ws.headers.get("x-forwarded-for") or ws.headers.get("x-real-ip")
     return direct, forwarded_for
+
+
+def _client_ip_key(direct: str | None, forwarded: str | None) -> str:
+    """用于“按 IP 限流/计数”的真实客户端 IP。
+
+    ALB 后 ws.client.host 恒为 ALB 内网地址（所有用户相同），必须取 X-Forwarded-For
+    的真实客户端 IP；且 XFF 可能是 "client, proxy1, ..." 列表，取最左第一个（与 diagnostics 一致）。
+
+    注意：最左值理论上可被客户端伪造。单层可信 ALB 场景足够；若前置更多不可信代理，
+    应按“可信代理跳数”从右侧取值，避免被伪造成他人 IP 定向占额。
+    """
+    if forwarded:
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
+    return (direct or "unknown").strip() or "unknown"
 
 
 def _is_web_demo(ws: WebSocket) -> bool:
@@ -577,34 +589,31 @@ async def ws_transcribe(ws: WebSocket):
     telemetry = _get_telemetry()
     is_web_demo = _is_web_demo(ws)
     client_ip_direct, client_ip_forwarded = _client_ip(ws)
-    ws_ip_key = (client_ip_direct or "unknown").strip() or "unknown"
+    ws_ip_key = _client_ip_key(client_ip_direct, client_ip_forwarded)
 
-    # Connection limits
+    # 先 accept，再用带专属 close code 的关闭来拒绝：
+    # 若在 accept 之前 close，框架会以 HTTP 403 拒绝握手，客户端只能看到通用错误(1006)，无法区分原因。
+    await ws.accept()
+
+    # Connection limits（拒绝时不计数、也不进入下方的 try/finally）
     if _active_ws_count >= _MAX_WS_TOTAL:
-        await ws.close(1013, "server at capacity")
+        logger.warning("ws rejected (server full): active=%d cid=%s", _active_ws_count, cid)
+        await ws.close(_WS_CLOSE_SERVER_FULL, "server at capacity")
         reset_log_context(connection_tokens)
         return
-    if _ws_by_ip[ws_ip_key] >= _MAX_WS_PER_IP:
-        await ws.close(1013, "too many connections from this IP")
+    if len(_ws_by_ip.get(ws_ip_key, ())) >= _MAX_WS_PER_IP:
+        logger.warning(
+            "ws rejected (per-ip limit): ip=%s count=%d cid=%s",
+            ws_ip_key, len(_ws_by_ip.get(ws_ip_key, ())), cid,
+        )
+        await ws.close(_WS_CLOSE_PER_IP_LIMIT, "too many connections from this IP")
         reset_log_context(connection_tokens)
         return
 
     if telemetry:
         telemetry.record_connection_event(cid, "ws_connected", None)
 
-    await ws.accept()
-    _active_ws_ids.add(cid)
-    _active_ws_count = len(_active_ws_ids)
-    _ws_by_ip[ws_ip_key] += 1
-    await ws.send_json(
-        {
-            "type": "ready",
-            "connection_id": cid,
-            "asr": asr_engine is not None,
-            "llm": _selected_llm_engine(is_web_demo) is not None,
-            "client": "web_demo" if is_web_demo else "desktop",
-        }
-    )
+    # 计数注册与 ready 发送移入下方 try，确保任何异常都会经 finally 释放（避免计数泄漏）。
 
     pcm_buffers: list[bytes] = []
     pcm_total_bytes: int = 0
@@ -675,10 +684,6 @@ async def ws_transcribe(ws: WebSocket):
             session_id = None
             return
 
-        rec_path = None
-        if telemetry:
-            telemetry.record_debug_audio(current_session_id, cid, rec_path)
-
         audio = np.frombuffer(all_pcm, dtype=np.int16).astype(np.float32) / 32768.0
         if len(audio) / 16000.0 < 0.3:
             if telemetry:
@@ -746,6 +751,7 @@ async def ws_transcribe(ws: WebSocket):
             return
 
         llm_debug = result.get("llm_debug", {}) if isinstance(result.get("llm_debug"), dict) else {}
+
         if telemetry:
             telemetry.record_pipeline_result(
                 current_session_id,
@@ -782,6 +788,18 @@ async def ws_transcribe(ws: WebSocket):
             "asr_engine": cfg.asr.engine,
             "asr_model": "FireRedASR2-AED-TensorRT" if cfg.asr.engine == "firered" else cfg.asr.model,
         }
+        # Audit log: metadata only (no transcript text persisted)
+        logger.info(
+            "audit ip=%s user=%s process=%s dur=%.1fs asr_ms=%d llm_ms=%d asr_len=%d llm_len=%d",
+            client_ip_forwarded or client_ip_direct or "-",
+            client_meta.get("user_id") or client_meta.get("user_name") or "-",
+            app_context.get("process_name") or "-",
+            result.get("duration_sec", 0),
+            result.get("asr_ms", 0),
+            result.get("llm_ms", 0),
+            len(result.get("asr_text", "")),
+            len(result.get("llm_text", "")),
+        )
         if cmp:
             msg["compare_no_hotwords"] = cmp
         await ws.send_json(msg)
@@ -793,8 +811,29 @@ async def ws_transcribe(ws: WebSocket):
         session_id = None
 
     try:
+        # 在 try 内注册连接计数，保证任何异常（含 accept 后立即断开）都会经 finally 释放
+        _active_ws_ids.add(cid)
+        _active_ws_count = len(_active_ws_ids)
+        _ws_by_ip[ws_ip_key].add(cid)
+        await ws.send_json(
+            {
+                "type": "ready",
+                "connection_id": cid,
+                "asr": asr_engine is not None,
+                "llm": _selected_llm_engine(is_web_demo) is not None,
+                "client": "web_demo" if is_web_demo else "desktop",
+            }
+        )
         while True:
-            msg = await ws.receive()
+            try:
+                msg = await asyncio.wait_for(ws.receive(), timeout=_WS_IDLE_TIMEOUT_SEC)
+            except asyncio.TimeoutError:
+                logger.info("ws idle %ds, reaping cid=%s ip=%s", _WS_IDLE_TIMEOUT_SEC, cid, ws_ip_key)
+                try:
+                    await ws.close(_WS_CLOSE_IDLE, "idle timeout")
+                except RuntimeError:
+                    pass
+                break
             if msg["type"] == "websocket.disconnect":
                 break
             raw = msg.get("bytes")
@@ -825,7 +864,7 @@ async def ws_transcribe(ws: WebSocket):
                     await ws.send_json({"type": "done"})
                     continue
                 if is_web_demo and not web_demo_slot_acquired:
-                    if not _try_acquire_web_demo_slot(client_ip_direct):
+                    if not _try_acquire_web_demo_slot(ws_ip_key):
                         await ws.send_json(
                             {
                                 "type": "error",
@@ -898,14 +937,15 @@ async def ws_transcribe(ws: WebSocket):
     finally:
         _active_ws_ids.discard(cid)
         _active_ws_count = len(_active_ws_ids)
-        if _ws_by_ip.get(ws_ip_key, 0) <= 1:
-            _ws_by_ip.pop(ws_ip_key, None)
-        else:
-            _ws_by_ip[ws_ip_key] -= 1
+        conns = _ws_by_ip.get(ws_ip_key)
+        if conns is not None:
+            conns.discard(cid)
+            if not conns:
+                _ws_by_ip.pop(ws_ip_key, None)
         if telemetry:
             telemetry.mark_disconnected(session_id, cid)
         if web_demo_slot_acquired:
-            _release_web_demo_slot(client_ip_direct)
+            _release_web_demo_slot(ws_ip_key)
         _clear_session_context()
         logger.info("ws disconnected")
         reset_log_context(connection_tokens)

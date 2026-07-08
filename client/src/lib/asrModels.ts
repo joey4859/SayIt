@@ -24,6 +24,7 @@ export function resolveQwenOmniModel(provider: string): string | undefined {
 const ASR_DISPLAY_MODEL_MAP: Record<string, string> = {
   doubao_v2: 'Doubao-Seed-ASR-2.0',
   qwen: 'qwen3-asr-flash',
+  mimo: 'mimo-v2.5-asr',
   ...QWEN_OMNI_MODEL_MAP,
 }
 

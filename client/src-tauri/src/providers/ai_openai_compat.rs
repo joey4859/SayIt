@@ -33,7 +33,7 @@ pub async fn polish(
         ]
     });
 
-    // 通义千问 Qwen3 系列默认开启思考模式，校对场景不需要
+    // 通义千问 Qwen3 默认开启思考模式，校对场景不需要
     if config.provider == "qwen" {
         body.as_object_mut().unwrap().insert(
             "enable_thinking".to_string(),
@@ -41,8 +41,9 @@ pub async fn polish(
         );
     }
 
-    // DeepSeek V4 Flash 默认开启 thinking，校对场景关闭以降低延迟
-    if config.provider == "deepseek" {
+    // DeepSeek / 小米 MiMo 默认开启思考，校对场景关闭以大幅降低延迟。
+    // 注意：小米原生端点用 thinking.type=disabled（官方文档），对 enable_thinking 无效。
+    if config.provider == "deepseek" || config.provider == "mimo" {
         body.as_object_mut().unwrap().insert(
             "thinking".to_string(),
             serde_json::json!({"type": "disabled"}),
@@ -52,10 +53,15 @@ pub async fn polish(
     let client = reqwest::Client::new();
     let start = Instant::now();
 
-    let resp = client
+    let mut req = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", config.api_key))
-        .header("Content-Type", "application/json")
+        .header("Content-Type", "application/json");
+    // 小米 MiMo 规范鉴权头为 api-key（同时兼容 Bearer），两个都带最稳妥
+    if config.provider == "mimo" {
+        req = req.header("api-key", config.api_key.clone());
+    }
+    let resp = req
         .json(&body)
         .timeout(std::time::Duration::from_secs(60))
         .send()
@@ -112,7 +118,7 @@ pub async fn test_connection(config: &AiProviderConfig) -> TestResult {
         );
     }
 
-    if config.provider == "deepseek" {
+    if config.provider == "deepseek" || config.provider == "mimo" {
         body.as_object_mut().unwrap().insert(
             "thinking".to_string(),
             serde_json::json!({"type": "disabled"}),
@@ -122,10 +128,14 @@ pub async fn test_connection(config: &AiProviderConfig) -> TestResult {
     let client = reqwest::Client::new();
     let start = Instant::now();
 
-    let result = client
+    let mut req = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", config.api_key))
-        .header("Content-Type", "application/json")
+        .header("Content-Type", "application/json");
+    if config.provider == "mimo" {
+        req = req.header("api-key", config.api_key.clone());
+    }
+    let result = req
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()

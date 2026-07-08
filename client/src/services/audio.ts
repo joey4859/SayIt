@@ -492,7 +492,9 @@ export async function startCapture(
     audio: {
       channelCount: 1,
       echoCancellation: false,
-      noiseSuppression: false,
+      // 默认开启降噪：部分机器麦克风底噪大（低频电流声），关闭降噪会原样录入。
+      // 回声消除/自动增益保持关闭，避免影响 ASR 音频。
+      noiseSuppression: true,
       autoGainControl: false,
       ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
     },

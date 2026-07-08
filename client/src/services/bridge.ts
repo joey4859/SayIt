@@ -95,6 +95,18 @@ export function copyText(text: string) {
   return invoke('copy_text', { text })
 }
 
+// ─── 系统输出静音（录音期间防回采）───
+
+/** 记录当前默认输出设备静音状态并将其静音。返回是否已处理。 */
+export function muteSystemOutput() {
+  return invoke<boolean>('mute_system_output')
+}
+
+/** 恢复到 muteSystemOutput 之前记录的静音状态。 */
+export function restoreSystemOutput() {
+  return invoke<boolean>('restore_system_output')
+}
+
 export function appendDebugLog(payload: unknown) {
   invoke('append_debug_log', { payload })
 }
@@ -166,8 +178,15 @@ export function saveExportBundle(payload: {
 
 // ─── Shortcuts ───
 
+/** 前端内部广播：快捷键设置已变化，供页面（如首页提示）实时刷新显示。 */
+export const SHORTCUTS_CHANGED_EVENT = 'sayit:shortcuts-changed'
+
 export function notifyShortcutsChanged() {
   invoke('shortcuts_changed')
+  // 同时在前端广播，让依赖快捷键显示的页面无需切换路由即可刷新
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(SHORTCUTS_CHANGED_EVENT))
+  }
 }
 
 export function testShortcut(accelerator: string) {

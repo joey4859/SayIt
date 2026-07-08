@@ -183,6 +183,9 @@ pub fn is_likely_editable_pub(ctx: &context::AppContext) -> bool {
     let editable_procs = [
         "notepad", "winword", "excel", "powerpnt", "outlook",
         "code", "devenv", "idea64",
+        // VS Code 派生的 AI IDE：焦点常报为 Pane 且无 ValuePattern，
+        // 与 code/devenv 同类，文本区可编辑，按进程名兜底放行
+        "trae", "cursor", "windsurf", "kiro",
         "chrome", "msedge", "firefox", "opera", "brave",
         "teams", "wechat", "dingtalk", "slack",
         "windowsterminal", "cmd", "powershell",
@@ -201,6 +204,15 @@ pub fn is_likely_editable_pub(ctx: &context::AppContext) -> bool {
 #[cfg(windows)]
 const WM_PASTE: u32 = 0x0302;
 
+/// WM_COMMAND = 0x0111
+#[cfg(windows)]
+const WM_COMMAND: u32 = 0x0111;
+
+/// conhost 系统菜单「粘贴」命令 ID（内置于 conhost）。
+/// 参考：0xFFF0=复制 0xFFF1=粘贴 0xFFF2=滚动 0xFFF3=标记 0xFFF5=全选
+#[cfg(windows)]
+const ID_CONSOLE_PASTE: usize = 0xFFF1;
+
 /// Main injection: try WM_PASTE first, then SendInput Ctrl+V as fallback.
 #[cfg(windows)]
 unsafe fn do_inject(target: HWND, focus: HWND, text: &str) -> InjectResult {
@@ -214,6 +226,55 @@ unsafe fn do_inject(target: HWND, focus: HWND, text: &str) -> InjectResult {
             detail: Some("failed after 5 retries".to_string()),
             uncertain: false,
         };
+    }
+
+    // Step 1.5: 经典控制台窗口（conhost，类名 ConsoleWindowClass）——用控制台
+    // 宿主自带的「粘贴」命令，而不是模拟 Ctrl+V 按键。
+    //
+    // 原因：当控制台里运行 TUI 程序（如 Claude Code）时，控制台被切到 raw 模式，
+    // 合成的 Ctrl+V 按键会被该程序当作普通按键吃掉，不会触发粘贴，导致剪贴板内容
+    // 根本没插入（但 SendInput 仍返回“成功”，形成假成功）。
+    // WM_COMMAND + ID_CONSOLE_PASTE 由 conhost 自身处理，不经过子程序的按键流，
+    // 且会遵循控制台当前输入模式（含 bracketed paste），因此 raw 模式下依然有效。
+    let target_class = crate::context::read_class_name(target).to_lowercase();
+    if target_class.contains("consolewindowclass") {
+        crate::commands::system::write_log_line(
+            &format!("[RUST] [inject] console paste attempt hwnd={} class={} textLen={}",
+                target.0 as isize, target_class, text.len())
+        );
+
+        // 先把控制台置前台，确保粘贴落在正确的窗口上
+        let fg_ok = force_foreground(target);
+
+        let mut result_val: usize = 0;
+        let send_ok = SendMessageTimeoutW(
+            target,
+            WM_COMMAND,
+            windows::Win32::Foundation::WPARAM(ID_CONSOLE_PASTE),
+            windows::Win32::Foundation::LPARAM(0),
+            SMTO_ABORTIFHUNG,
+            2000, // 2 second timeout
+            Some(&mut result_val),
+        );
+
+        if send_ok.0 != 0 {
+            crate::commands::system::write_log_line(
+                &format!("[RUST] [inject] console paste ok hwnd={} fgOk={}", target.0 as isize, fg_ok)
+            );
+            return InjectResult {
+                ok: true,
+                strategy: Some("console_paste".to_string()),
+                reason: None,
+                detail: Some(format!(
+                    "hwnd={} class={} textLen={} fgOk={}",
+                    target.0 as isize, target_class, text.len(), fg_ok
+                )),
+                uncertain: false,
+            };
+        }
+        crate::commands::system::write_log_line(
+            "[RUST] [inject] console paste failed, fallback to SendInput"
+        );
     }
 
     // Step 2: Try WM_PASTE — this is a message sent directly to the target

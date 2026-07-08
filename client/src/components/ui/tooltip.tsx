@@ -6,9 +6,11 @@ interface TooltipProps {
   children: ReactNode
   className?: string
   forceVisible?: boolean
+  /** 'dark'（默认，短标签）| 'light'（浅色卡片，适合较长说明文字） */
+  variant?: 'dark' | 'light'
 }
 
-export function Tooltip({ content, children, className, forceVisible }: TooltipProps) {
+export function Tooltip({ content, children, className, forceVisible, variant = 'dark' }: TooltipProps) {
   const [hovered, setHovered] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const triggerRef = useRef<HTMLSpanElement>(null)
@@ -53,7 +55,11 @@ export function Tooltip({ content, children, className, forceVisible }: TooltipP
     ? createPortal(
         <div
           ref={tooltipRef}
-          className="pointer-events-none fixed z-[9999] rounded-md bg-foreground px-2.5 py-1.5 text-xs text-background shadow-lg"
+          className={
+            variant === 'light'
+              ? 'pointer-events-none fixed z-[9999] max-w-[600px] whitespace-pre-line rounded-lg border border-border bg-card px-3.5 py-2.5 text-left text-xs leading-relaxed text-muted-foreground shadow-lg'
+              : 'pointer-events-none fixed z-[9999] max-w-xs rounded-md bg-foreground px-2.5 py-1.5 text-xs leading-relaxed text-background shadow-lg'
+          }
           style={{
             top: pos ? `${pos.top}px` : '-9999px',
             left: pos ? `${pos.left}px` : '-9999px',

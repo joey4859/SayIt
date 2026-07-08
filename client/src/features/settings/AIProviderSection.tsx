@@ -16,6 +16,7 @@ const AI_PROVIDERS = [
   { value: 'deepseek', label: 'DeepSeek', urlPlaceholder: 'https://api.deepseek.com', modelPlaceholder: 'deepseek-v4-flash' },
   { value: 'doubao', label: '豆包（火山方舟）', urlPlaceholder: 'https://ark.cn-beijing.volces.com/api/v3', modelPlaceholder: 'doubao-seed-2-0-lite-260215' },
   { value: 'qwen', label: '通义千问', urlPlaceholder: 'https://dashscope.aliyuncs.com/compatible-mode', modelPlaceholder: 'qwen-plus' },
+  { value: 'mimo', label: '小米 MiMo', urlPlaceholder: 'https://api.xiaomimimo.com/v1', modelPlaceholder: 'mimo-v2.5-pro' },
   { value: 'ollama', label: 'Ollama', urlPlaceholder: 'http://127.0.0.1:11434', modelPlaceholder: 'qwen2.5:7b' },
 ]
 
@@ -103,12 +104,19 @@ export default function AIProviderSection() {
   const DEFAULT_MODELS: Record<string, string> = {
     deepseek: 'deepseek-v4-flash',
     qwen: 'qwen3.6-flash',
+    mimo: 'mimo-v2.5',
+  }
+
+  // 部分供应商首次使用时种入多个可选模型（默认选第一个）
+  const DEFAULT_MODEL_LISTS: Record<string, string[]> = {
+    mimo: ['mimo-v2.5', 'mimo-v2.5-pro'],
   }
 
   // 每个供应商的默认 API 地址（新用户首次使用时自动填充）
   const DEFAULT_URLS: Record<string, string> = {
     deepseek: 'https://api.deepseek.com',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode',
+    mimo: 'https://api.xiaomimimo.com/v1',
   }
 
   // 加载指定供应商的配置
@@ -123,11 +131,17 @@ export default function AIProviderSection() {
     if (!url && defaultUrl) {
       url = defaultUrl
     }
-    // 新用户首次使用：如果没有任何模型配置，自动填充默认模型
-    const defaultModel = DEFAULT_MODELS[provider]
-    if (!model && models.length === 0 && defaultModel) {
-      model = defaultModel
-      models = [defaultModel]
+    // 新用户首次使用：如果没有任何模型配置，自动填充默认模型（支持多个）
+    if (!model && models.length === 0) {
+      const defaultList = DEFAULT_MODEL_LISTS[provider]
+      const defaultModel = DEFAULT_MODELS[provider]
+      if (defaultList && defaultList.length > 0) {
+        models = [...defaultList]
+        model = defaultList[0]
+      } else if (defaultModel) {
+        model = defaultModel
+        models = [defaultModel]
+      }
     }
     // 兼容旧数据：如果有 model 但不在 models 列表里，加进去
     if (model && !models.includes(model)) {
@@ -138,6 +152,7 @@ export default function AIProviderSection() {
     setAiModel(model)
     setAiModels(models)
     setNewModelInput('')
+    return { url, key, model }
   }
 
   async function loadSettings() {
@@ -148,8 +163,16 @@ export default function AIProviderSection() {
   function handleProviderChange(newProvider: string) {
     setAiProvider(newProvider)
     setAiMessage('')
-    void setSetting('cloudAi.provider', newProvider)
-    void loadProviderConfig(newProvider)
+    void (async () => {
+      const cfg = await loadProviderConfig(newProvider)
+      // 立即同步全局 active 配置（provider + 地址/Key/模型），
+      // 否则切换供应商但未点保存时，实际仍会用上一个供应商的地址与模型
+      // （典型现象：切到豆包却显示/调用 deepseek-v4-flash）
+      await setSetting('cloudAi.provider', newProvider)
+      await setSetting('cloudAi.apiUrl', cfg.url)
+      await setSetting('cloudAi.apiKey', cfg.key)
+      await setSetting('cloudAi.model', cfg.model)
+    })()
   }
 
   // 如果输入框有内容，自动添加到模型列表并选中
@@ -208,6 +231,13 @@ export default function AIProviderSection() {
 
   function handleSelectModel(name: string) {
     setAiModel(name)
+    // 点击模型标签立即持久化（该供应商 + 全局），无需再点保存，
+    // 否则运行时与历史记录仍会用上一次保存的模型。
+    void (async () => {
+      await setSetting(aiSettingKey(aiProvider, 'model'), name)
+      await setSetting('cloudAi.provider', aiProvider)
+      await setSetting('cloudAi.model', name)
+    })()
   }
 
   async function testConnection() {

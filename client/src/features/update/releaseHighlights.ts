@@ -1,0 +1,22 @@
+// 本次版本更新亮点（关于页面展示）。
+// 每次发版时更新 version 与 items，保持与 CHANGELOG 同步。
+// version 需与打包版本一致，关于页面仅在与当前版本匹配时展示，避免串版。
+//
+// 每条写成一句话：前半句说明功能，后半句补充解释，读起来更顺。
+
+export interface ReleaseHighlights {
+  version: string
+  items: string[]
+}
+
+export const RELEASE_HIGHLIGHTS: ReleaseHighlights = {
+  version: '0.0.8',
+  items: [
+    '本地识别新增 Qwen3-ASR 模型，离线也能获得更准的多语种识别',
+    '润色模式支持快捷键切换，设置组合键即可随时一键切换',
+    '文本替换支持批量添加，可粘贴多行一次导入多条规则',
+    '录音时可静音系统声音，避免外放被麦克风录进去',
+    '云端识别与 AI 润色新增小米 MiMo，填入 API Key 即可使用',
+    '多项体验优化与修复，涵盖悬浮窗、热键、设置向导与本地识别',
+  ],
+}

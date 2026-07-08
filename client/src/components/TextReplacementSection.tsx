@@ -1,12 +1,13 @@
 // 文本替换规则管理组件
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, X } from 'lucide-react'
+import { Plus, X, List } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import {
   getTextReplacements,
   saveTextReplacements,
+  parseBatchReplacements,
   type TextReplacementRule,
 } from '@/services/textReplacement'
 
@@ -18,6 +19,9 @@ export default function TextReplacementSection() {
   const [rules, setRules] = useState<TextReplacementRule[]>([])
   const [fromInput, setFromInput] = useState('')
   const [toInput, setToInput] = useState('')
+  const [batchMode, setBatchMode] = useState(false)
+  const [batchText, setBatchText] = useState('')
+  const [batchHint, setBatchHint] = useState('')
 
   useEffect(() => {
     getTextReplacements().then((loaded) => {
@@ -42,6 +46,37 @@ export default function TextReplacementSection() {
     setFromInput('')
     setToInput('')
   }, [fromInput, toInput])
+
+  const importBatch = useCallback(() => {
+    const parsed = parseBatchReplacements(batchText)
+    if (parsed.length === 0) {
+      setBatchHint('没有可导入的规则，请检查格式')
+      return
+    }
+    setRules((prev) => {
+      const existing = new Set(prev.map((r) => r.from))
+      const next = [...prev]
+      let added = 0
+      let updated = 0
+      for (const { from, to } of parsed) {
+        if (existing.has(from)) {
+          // 已存在同一原文：更新其替换内容
+          const idx = next.findIndex((r) => r.from === from)
+          if (idx >= 0 && next[idx].to !== to) {
+            next[idx] = { ...next[idx], to }
+            updated++
+          }
+        } else {
+          next.push({ id: createId(), from, to, enabled: true })
+          existing.add(from)
+          added++
+        }
+      }
+      setBatchHint(`已导入：新增 ${added} 条${updated > 0 ? `，更新 ${updated} 条` : ''}`)
+      return next
+    })
+    setBatchText('')
+  }, [batchText])
 
   const removeRule = useCallback((id: string) => {
     setRules((prev) => prev.filter((r) => r.id !== id))
@@ -76,42 +111,97 @@ export default function TextReplacementSection() {
       </p>
 
       {/* 添加新规则 — 两列对齐 */}
-      <div className="flex items-center gap-2">
-        <input
-          value={fromInput}
-          onChange={(e) => setFromInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              void addRule()
-            }
-          }}
-          placeholder="原文"
-          className="w-0 flex-1 rounded-md border border-input-border bg-input-bg px-3 py-1.5 text-sm"
-        />
-        <input
-          value={toInput}
-          onChange={(e) => setToInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              void addRule()
-            }
-          }}
-          placeholder="替换为（留空则删除）"
-          className="w-0 flex-1 rounded-md border border-input-border bg-input-bg px-3 py-1.5 text-sm"
-        />
-        <Button
-          onClick={() => void addRule()}
-          size="sm"
-          variant="outline"
-          disabled={!fromInput.trim()}
-          className="shrink-0 gap-1.5"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          添加
-        </Button>
-      </div>
+      {!batchMode && (
+        <div className="flex items-center gap-2">
+          <input
+            value={fromInput}
+            onChange={(e) => setFromInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void addRule()
+              }
+            }}
+            placeholder="原文"
+            className="w-0 flex-1 rounded-md border border-input-border bg-input-bg px-3 py-1.5 text-sm"
+          />
+          <input
+            value={toInput}
+            onChange={(e) => setToInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void addRule()
+              }
+            }}
+            placeholder="替换为（留空则删除）"
+            className="w-0 flex-1 rounded-md border border-input-border bg-input-bg px-3 py-1.5 text-sm"
+          />
+          <Button
+            onClick={() => void addRule()}
+            size="sm"
+            variant="outline"
+            disabled={!fromInput.trim()}
+            className="shrink-0 gap-1.5"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            添加
+          </Button>
+          <Button
+            onClick={() => { setBatchMode(true); setBatchHint('') }}
+            size="sm"
+            variant="outline"
+            className="shrink-0 gap-1.5"
+          >
+            <List className="h-3.5 w-3.5" />
+            批量
+          </Button>
+        </div>
+      )}
+
+      {/* 批量添加 */}
+      {batchMode && (
+        <div className="rounded-lg border border-border p-3">
+          <p className="mb-2 text-xs text-muted-foreground">
+            每行一条规则，用逗号、制表符或 <code>=&gt;</code> 分隔原文与替换内容，例如：
+            <br />
+            安卓说话，按住说话
+            <br />
+            Cloud Code =&gt; Claude Code
+            <br />
+            留空替换内容则表示删除该文本。
+          </p>
+          <textarea
+            value={batchText}
+            onChange={(e) => setBatchText(e.target.value)}
+            rows={6}
+            placeholder={'原文，替换为\n原文2 => 替换为2'}
+            className="w-full resize-y rounded-md border border-input-border bg-input-bg px-3 py-2 text-sm leading-relaxed"
+          />
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground">{batchHint}</span>
+            <div className="flex shrink-0 gap-2">
+              <Button
+                onClick={() => { setBatchMode(false); setBatchText(''); setBatchHint('') }}
+                size="sm"
+                variant="outline"
+              >
+                完成
+              </Button>
+              <Button
+                onClick={() => void importBatch()}
+                size="sm"
+                variant="outline"
+                disabled={!batchText.trim()}
+                className="gap-1.5"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                导入
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 规则列表 — 两列布局 */}
       {rules.length > 0 && (

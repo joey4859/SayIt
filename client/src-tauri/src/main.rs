@@ -14,7 +14,7 @@ use storage::Storage;
 use window::WindowState;
 use keyboard::KeyboardHookManager;
 use context::ContextDetector;
-use tauri::{Manager, Emitter};
+use tauri::Manager;
 use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 
@@ -169,6 +169,15 @@ fn main() {
     let context_detector = ContextDetector::new();
 
     tauri::Builder::default()
+        // 单实例锁：必须作为第一个插件注册。第二次启动时不新开进程，
+        // 而是唤起已有窗口，避免两个客户端同时收全局热键、各插一份文本。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .manage(storage)
         .manage(window_state)
         .manage(keyboard_hook)
@@ -211,7 +220,7 @@ fn main() {
 
                 let _tray = TrayIconBuilder::new()
                     .icon(icon)
-                    .tooltip("SayIt — 按住说话，松开输入")
+                    .tooltip("SayIt — 随口说，出色写")
                     .menu(&tray_menu)
                     .on_menu_event(|app, event| {
                         match event.id().as_ref() {
@@ -245,26 +254,11 @@ fn main() {
             let detector: tauri::State<ContextDetector> = app.state();
             detector.start_winevent_hook(app.handle());
 
-            // Register hands-free global shortcut (only for combo keys; single keys are handled by keyboard hook)
+            // Register all global shortcuts (hands-free combo + preset-switch shortcuts).
+            // Single keys are handled by the keyboard hook, not here.
             {
                 let storage: tauri::State<Storage> = app.state();
-                let hf_val = storage.get("shortcutHandsFree", None);
-                let hf_key = hf_val.as_str().unwrap_or("AltRight");
-                if !hf_key.is_empty() && hf_key.contains('+') {
-                    use tauri_plugin_global_shortcut::GlobalShortcutExt;
-                    if let Err(e) = app.global_shortcut().on_shortcut(
-                        hf_key,
-                        move |_app, _shortcut, _event| {
-                            let _ = _app.emit("toggle-hands-free", serde_json::json!({
-                                "source": "globalShortcut",
-                            }));
-                        },
-                    ) {
-                        log::warn!("Failed to register hands-free shortcut '{}': {}", hf_key, e);
-                    } else {
-                        log::info!("Registered hands-free shortcut: {}", hf_key);
-                    }
-                }
+                commands::shortcuts::register_all_global_shortcuts(app.handle(), storage.inner());
             }
 
             // 首次安装时自动启用开机自启（仅执行一次）
@@ -346,6 +340,9 @@ fn main() {
             commands::audio::save_pcm_as_wav,
             commands::audio::read_audio_file,
             commands::audio::delete_audio_file,
+            // Audio output mute (录音期间静音系统输出，防回采)
+            commands::audio_mute::mute_system_output,
+            commands::audio_mute::restore_system_output,
             // Shortcuts
             commands::shortcuts::shortcuts_changed,
             commands::shortcuts::test_shortcut,

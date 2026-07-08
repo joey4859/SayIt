@@ -110,6 +110,7 @@ export default function AsrTestSection({ workMode }: { workMode: WorkMode }) {
         const ASR_MODEL_ID_MAP: Record<string, string> = {
           doubao_v2: 'Doubao-Seed-ASR-2.0',
           qwen: 'qwen3-asr-flash',
+          mimo: 'mimo-v2.5-asr',
           qwen_omni_35_plus: 'qwen3.5-omni-plus-realtime',
           qwen_omni_35_flash: 'qwen3.5-omni-flash-realtime',
           qwen_omni_flash: 'qwen3-omni-flash-realtime',

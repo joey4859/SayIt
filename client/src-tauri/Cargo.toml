@@ -1,6 +1,6 @@
 [package]
 name = "sayit"
-version = "0.0.7"
+version = "0.0.8"
 authors = ["Liu Qianglong", "Claude"]
 edition = "2021"
 
@@ -17,6 +17,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
@@ -38,7 +39,7 @@ flate2 = "1"
 tar = "0.4"
 bzip2 = "0.4"
 tokio = { version = "1", features = ["rt"] }
-sherpa-onnx = { version = "1.12", default-features = false, features = ["static"] }
+sherpa-onnx = { version = "1.13.3", default-features = false, features = ["static"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
@@ -51,4 +52,6 @@ windows = { version = "0.58", features = [
   "Win32_System_Memory",
   "Win32_System_Com",
   "Win32_Graphics_Gdi",
+  "Win32_Media_Audio",
+  "Win32_Media_Audio_Endpoints",
 ] }

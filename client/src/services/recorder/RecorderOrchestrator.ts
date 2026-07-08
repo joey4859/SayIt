@@ -6,8 +6,10 @@ import {
   getActivePresetId,
   getPromptPresets,
   getSetting,
+  setActivePresetId,
   type PromptPreset,
 } from '../store'
+import { setActivePresetKnown } from '../../stores/activePreset'
 import { addRuntimeEvent } from '../debugLog'
 import { saveRecordingAudio } from '../audioFileService'
 import {
@@ -107,6 +109,12 @@ export class RecorderOrchestrator {
   private lastPTTUpUsedModifier = false
 
   private cachedMicId = ''
+  /** 是否在录音期间静音系统输出（防外放被麦克风回采）。默认关闭。 */
+  private cachedMuteSystemAudio = false
+  /** 标记本次录音是否已施加系统静音，用于配对恢复。 */
+  private systemMuteApplied = false
+  /** 延迟静音定时器（等提示音播完再静音）。 */
+  private systemMuteTimerId: ReturnType<typeof setTimeout> | null = null
   private cachedPresets: PromptPreset[] = []
   private cachedActivePresetId = 'intent'
   private cachedAiEnabled = true
@@ -150,6 +158,85 @@ export class RecorderOrchestrator {
     return this.state
   }
 
+  /** 若已开启「录音时静音系统声音」，在就绪提示音播放之后再静音系统输出。
+   *  延迟略长于提示音时长（~150ms），避免把提示音也一起静掉。 */
+  private scheduleSystemMuteIfEnabled() {
+    if (!this.cachedMuteSystemAudio) return
+    this.clearSystemMuteTimer()
+    this.systemMuteTimerId = setTimeout(() => {
+      this.systemMuteTimerId = null
+      // 若此时已不在录音（短按等），不再静音，避免残留
+      if (this.state !== 'recording') return
+      this.applySystemMute()
+    }, 250)
+  }
+
+  private applySystemMute() {
+    if (this.systemMuteApplied) return
+    this.systemMuteApplied = true
+    void bridge.muteSystemOutput().catch((e) => {
+      this.systemMuteApplied = false
+      addRuntimeEvent('warn', 'recorder', '静音系统输出失败', { error: String(e) })
+    })
+  }
+
+  private clearSystemMuteTimer() {
+    if (this.systemMuteTimerId) {
+      clearTimeout(this.systemMuteTimerId)
+      this.systemMuteTimerId = null
+    }
+  }
+
+  /** 恢复系统输出到静音前的状态，并清除挂起的静音定时器。 */
+  private restoreSystemMuteIfNeeded() {
+    this.clearSystemMuteTimer()
+    if (!this.systemMuteApplied) return
+    this.systemMuteApplied = false
+    void bridge.restoreSystemOutput().catch((e) => {
+      addRuntimeEvent('warn', 'recorder', '恢复系统输出失败', { error: String(e) })
+    })
+  }
+
+  /** 未就绪时的简短提示文案（按当前工作模式区分）。 */
+  private notReadyMessage(): string {
+    switch (this.provider.mode) {
+      case 'server':
+        return '服务器未连接'
+      case 'local':
+        return '模型未就绪'
+      default:
+        return '服务未就绪'
+    }
+  }
+
+  /** 通过快捷键切换当前润色模式，并在空闲时用悬浮窗提示。 */
+  private async handlePresetSwitch(presetId: string) {
+    try {
+      // 优先用已缓存的预设列表，避免 IPC 等待导致的延时
+      let target = this.cachedPresets.find((p) => p.id === presetId)
+      if (!target) {
+        const presets = await getPromptPresets()
+        target = presets.find((p) => p.id === presetId)
+        this.cachedPresets = presets
+      }
+      if (!target) {
+        addRuntimeEvent('warn', 'recorder', '切换润色模式失败：未找到预设', { presetId })
+        return
+      }
+      // 立即生效：更新录音器缓存 + 通知 UI + 悬浮窗提示（均无需等待 IPC）
+      this.cachedActivePresetId = presetId
+      setActivePresetKnown(presetId, target.name)
+      if (this.state === 'idle') {
+        this.overlayService.showPresetSwitched(target.name)
+      }
+      addRuntimeEvent('info', 'recorder', '快捷键切换润色模式', { presetId, name: target.name })
+      // 持久化放到后台，不阻塞 UI 反馈
+      void setActivePresetId(presetId)
+    } catch (error) {
+      addRuntimeEvent('error', 'recorder', '切换润色模式异常', { error: String(error) })
+    }
+  }
+
   /** 临时禁用/启用 PTT（用于欢迎向导热键确认步骤） */
   setPttSuppressed(suppressed: boolean) {
     this.pttSuppressed = suppressed
@@ -162,6 +249,13 @@ export class RecorderOrchestrator {
     startInsertionTargetTracking()
     await this.refreshRuntimeSettings()
     this.ensureConnection()
+
+    // 快捷键切换润色模式（由 Rust global_shortcut 触发）
+    void bridge.listen('switch-preset', (event: unknown) => {
+      const payload = (event as { payload?: { presetId?: string } })?.payload
+      const presetId = payload?.presetId
+      if (presetId) void this.handlePresetSwitch(presetId)
+    })
 
     bridge.onPTTDown((payload) => {
       this.notePTTDown(payload)
@@ -257,6 +351,7 @@ export class RecorderOrchestrator {
   async refreshRuntimeSettings() {
     const [
       micId,
+      muteSystemAudio,
       presets,
       activePresetId,
       aiEnabled,
@@ -264,6 +359,7 @@ export class RecorderOrchestrator {
       userStats,
     ] = await Promise.all([
       getSetting('selectedMic', ''),
+      getSetting('muteSystemAudioWhileRecording', false),
       getPromptPresets(),
       getActivePresetId(),
       getSetting('aiEnabled', false),
@@ -272,6 +368,7 @@ export class RecorderOrchestrator {
     ])
 
     this.cachedMicId = String(micId || '')
+    this.cachedMuteSystemAudio = Boolean(muteSystemAudio)
     this.cachedPresets = presets
     this.cachedActivePresetId = activePresetId
     this.cachedAiEnabled = Boolean(aiEnabled)
@@ -311,8 +408,13 @@ export class RecorderOrchestrator {
     }
   }
 
-  /** 工作模式切换后重新连接 provider */
+  /** 工作模式或服务地址变更后强制重连 provider。
+   *  先断开旧连接再按新配置连接，确保连接状态与新地址一致（否则改错地址后仍显示"已连接"）。
+   *  录音进行中不强制断开，避免打断当前会话。 */
   reconnectProvider() {
+    if (this.state === 'idle') {
+      this.provider.disconnect()
+    }
     this.ensureConnection()
   }
 
@@ -369,6 +471,8 @@ export class RecorderOrchestrator {
     }
     this.overlayService.stopListeningTicker()
     this.overlayService.resetWarnings()
+    // 安全网：若仍处于我们施加的系统静音中，确保恢复
+    this.restoreSystemMuteIfNeeded()
     this.startRecordingLock = false
     this.pendingStopWhileStarting = false
     this.handsFreeMode = false
@@ -705,6 +809,16 @@ export class RecorderOrchestrator {
       addRuntimeEvent('info', 'recorder', '开始录音请求已忽略', { state: this.state, locked: this.startRecordingLock })
       return
     }
+
+    // 未就绪（如 server 模式后端未连接）：给出告警，不进入录音，避免悬浮窗卡住关不掉
+    if (!this.provider.isReady()) {
+      this.handsFreeMode = false
+      addRuntimeEvent('warn', 'recorder', '未就绪，忽略开始录音', { mode: this.provider.mode })
+      this.overlayService.showError(this.notReadyMessage())
+      this.ensureConnection()
+      return
+    }
+
     this.startRecordingLock = true
     this.pendingStopWhileStarting = false
     this.timedOutProcessingContext = null
@@ -913,6 +1027,8 @@ export class RecorderOrchestrator {
       }
       this.startRecordingLock = false
       this.overlayService.startListeningTicker()
+      // 就绪提示音已触发，稍后再静音系统输出（避免把提示音一起静掉）
+      this.scheduleSystemMuteIfEnabled()
       armHandsFreeTimer()
 
       // Check if PTT up arrived while we were initializing
@@ -927,6 +1043,8 @@ export class RecorderOrchestrator {
       resolveCaptureReady!()
       this.startRecordingLock = false
       this.pendingStopWhileStarting = false
+      // 录音启动失败也要恢复系统输出，避免系统一直静音
+      this.restoreSystemMuteIfNeeded()
       addRuntimeEvent('error', 'recorder', '开始录音失败', { error: String(error) })
       try { await stopCapture() } catch { /* ignore */ }
       this.provider.stop({ pttHoldMs: elapsedSecFromPerf(this.recordStartPerf) * 1000 })
@@ -964,6 +1082,9 @@ export class RecorderOrchestrator {
     try { await stopCapture() } catch (error) {
       addRuntimeEvent('error', 'recorder', '停止采集失败', { error: String(error) })
     }
+
+    // 采集已停止，恢复系统输出到静音前的状态
+    this.restoreSystemMuteIfNeeded()
 
     const audioDur = this.getAudioDurationSec()
     const pttHoldMs = elapsedSecFromPerf(this.recordStartPerf) * 1000
@@ -1162,9 +1283,14 @@ export class RecorderOrchestrator {
 
   private buildHistoryMetadata(promptResolution?: PromptResolution | null) {
     const resolved = promptResolution || this.currentPromptResolution || undefined
+    const ctx = this.currentActiveAppContext
     return {
       appId: resolved?.appId,
       appName: resolved?.appName,
+      // 录音时聚焦窗口的原始信息（用于反馈排错）
+      windowTitle: ctx?.windowTitle || undefined,
+      processName: ctx?.processName || undefined,
+      windowClass: ctx?.windowClass || undefined,
       promptPresetId: resolved?.preset.id,
       promptPresetName: resolved?.preset.name,
       promptRuleId: resolved?.matchedRule?.id,
@@ -1193,6 +1319,7 @@ export class RecorderOrchestrator {
       const ASR_MODEL_ID_MAP: Record<string, string> = {
         doubao_v2: 'Doubao-Seed-ASR-2.0',
         qwen: 'qwen3-asr-flash',
+        mimo: 'mimo-v2.5-asr',
         qwen_omni_35_plus: 'qwen3.5-omni-plus-realtime',
         qwen_omni_35_flash: 'qwen3.5-omni-flash-realtime',
         qwen_omni_flash: 'qwen3-omni-flash-realtime',

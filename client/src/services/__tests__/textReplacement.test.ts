@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyReplacements, type TextReplacementRule } from '../textReplacement'
+import { applyReplacements, parseBatchReplacements, type TextReplacementRule } from '../textReplacement'
 
 function rule(from: string, to: string, enabled = true): TextReplacementRule {
   return { id: '1', from, to, enabled }
@@ -41,5 +41,52 @@ describe('applyReplacements', () => {
 
   it('空文本返回空', () => {
     expect(applyReplacements('', [rule('a', 'b')])).toBe('')
+  })
+})
+
+describe('parseBatchReplacements', () => {
+  it('英文逗号分隔', () => {
+    expect(parseBatchReplacements('安卓说话,按住说话')).toEqual([
+      { from: '安卓说话', to: '按住说话' },
+    ])
+  })
+
+  it('中文逗号分隔', () => {
+    expect(parseBatchReplacements('安卓说话，按住说话')).toEqual([
+      { from: '安卓说话', to: '按住说话' },
+    ])
+  })
+
+  it('制表符分隔（从表格粘贴）', () => {
+    expect(parseBatchReplacements('Cloud Code\tClaude Code')).toEqual([
+      { from: 'Cloud Code', to: 'Claude Code' },
+    ])
+  })
+
+  it('=> 与 -> 分隔', () => {
+    expect(parseBatchReplacements('a => b\nc -> d')).toEqual([
+      { from: 'a', to: 'b' },
+      { from: 'c', to: 'd' },
+    ])
+  })
+
+  it('多行、忽略空行、去除首尾空白', () => {
+    const input = ' 原文1, 替换1 \n\n原文2,替换2\n'
+    expect(parseBatchReplacements(input)).toEqual([
+      { from: '原文1', to: '替换1' },
+      { from: '原文2', to: '替换2' },
+    ])
+  })
+
+  it('无分隔符的行：替换为留空（删除）', () => {
+    expect(parseBatchReplacements('嗯')).toEqual([{ from: '嗯', to: '' }])
+  })
+
+  it('取最靠前的分隔符，替换内容可含其它逗号', () => {
+    expect(parseBatchReplacements('abc,a, b')).toEqual([{ from: 'abc', to: 'a, b' }])
+  })
+
+  it('原文为空的行忽略', () => {
+    expect(parseBatchReplacements(',只有替换')).toEqual([])
   })
 })

@@ -147,6 +147,9 @@ function HistoryItem({
         setDuration(audio.duration)
         setAudioReady(true)
       }
+      // 原生 timeupdate 兜底：远程桌面 / 窗口失焦时 requestAnimationFrame 会被降频甚至暂停，
+      // 导致进度条卡住。timeupdate 是媒体事件，不受 rAF 节流影响，保证进度稳定推进。
+      audio.ontimeupdate = () => setCurrentTime(audio.currentTime)
       audio.onended = () => {
         setAudioPlaying(false)
         setCurrentTime(0)
@@ -288,7 +291,7 @@ function HistoryItem({
                     {record.asrProvider && (
                       <span className="text-xs">ASR: {ASR_PROVIDER_DISPLAY[record.asrProvider] || record.asrProvider}</span>
                     )}
-                    {record.aiProvider && record.aiProvider !== 'server' && record.llmText && record.llmText !== record.asrText && (
+                    {record.aiProvider && record.aiProvider !== 'server' && record.llmMs > 0 && (
                       <span className="text-xs">
                         AI: {record.aiProvider}{record.aiModel ? ` (${record.aiModel})` : ''}
                       </span>

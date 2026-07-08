@@ -57,9 +57,13 @@ pub async fn download_file(
     let dest_path = dest_dir.join(file_name);
     let temp_path = dest_dir.join(format!("{}.part", file_name));
 
-    // 确保目录存在
+    // 确保目录存在（file_name 可能含子路径，如 tokenizer/merges.txt，需创建其父目录）
     std::fs::create_dir_all(dest_dir)
         .map_err(|e| format!("创建目录失败: {}", e))?;
+    if let Some(parent) = dest_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("创建目录失败: {}", e))?;
+    }
 
     // 检查是否已有部分下载（断点续传）
     let mut downloaded: u64 = 0;
@@ -197,50 +201,49 @@ fn emit_progress(
 /// 下载 tar.bz2 压缩包并解压到模型目录
 /// 解压时会跳过顶层目录（如 sherpa-onnx-funasr-nano-int8-2025-12-30/）
 /// 并跳过 test_wavs/ 目录和 README.md
-pub async fn download_and_extract_tar_bz2(
-    app: AppHandle,
+/// 为 GitHub Release 地址生成候选下载列表：国内加速代理优先，直连兜底。
+/// 非 GitHub 地址（如 ModelScope）原样返回。
+fn build_archive_candidates(url: &str) -> Vec<String> {
+    if url.starts_with("https://github.com/") {
+        vec![
+            format!("https://gh-proxy.com/{}", url),
+            format!("https://ghfast.top/{}", url),
+            url.to_string(),
+        ]
+    } else {
+        vec![url.to_string()]
+    }
+}
+
+/// 从单个 URL 下载压缩包到 temp_path（支持断点续传）。下载完整返回 Ok。
+async fn download_archive_once(
+    app: &AppHandle,
     model_id: &str,
     url: &str,
+    temp_path: &Path,
 ) -> Result<(), String> {
-    let dest_dir = model_dir(model_id);
-    let archive_path = dest_dir.with_extension("tar.bz2");
-    let temp_path = dest_dir.with_extension("tar.bz2.part");
-
-    std::fs::create_dir_all(&dest_dir)
-        .map_err(|e| format!("创建目录失败: {}", e))?;
-
-    // 下载压缩包（支持断点续传）
-    let mut downloaded: u64 = 0;
-    if temp_path.exists() {
-        downloaded = std::fs::metadata(&temp_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
-    }
-
-    // 如果已经解压过（目录中有 onnx 文件），跳过下载
-    if dest_dir.join("encoder_adaptor.int8.onnx").exists()
-        || dest_dir.join("model.int8.onnx").exists()
-    {
-        emit_progress(&app, model_id, "archive", 1, 1, "completed", None, 1, 1);
-        return Ok(());
-    }
+    let mut downloaded: u64 = if temp_path.exists() {
+        std::fs::metadata(temp_path).map(|m| m.len()).unwrap_or(0)
+    } else {
+        0
+    };
 
     let client = build_http_client()?;
     let mut request = client.get(url);
     if downloaded > 0 {
         request = request.header("Range", format!("bytes={}-", downloaded));
-        log::info!("Resuming archive download from {} bytes", downloaded);
+        log::info!("Resuming archive download from {} bytes ({})", downloaded, url);
     }
 
-    emit_progress(&app, model_id, "archive", downloaded, 0, "downloading", None, 1, 1);
+    emit_progress(app, model_id, "archive", downloaded, 0, "downloading", None, 1, 1);
 
-    let resp = request.send().await
+    let resp = request
+        .send()
+        .await
         .map_err(|e| format!("下载请求失败: {}", e))?;
 
     if !resp.status().is_success() && resp.status().as_u16() != 206 {
-        let msg = format!("下载失败 HTTP {}", resp.status());
-        emit_progress(&app, model_id, "archive", 0, 0, "failed", Some(&msg), 1, 1);
-        return Err(msg);
+        return Err(format!("下载失败 HTTP {}", resp.status()));
     }
 
     let content_length = resp.content_length().unwrap_or(0);
@@ -250,7 +253,7 @@ pub async fn download_and_extract_tar_bz2(
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&temp_path)
+        .open(temp_path)
         .map_err(|e| format!("打开文件失败: {}", e))?;
 
     let mut stream = resp.bytes_stream();
@@ -263,18 +266,61 @@ pub async fn download_and_extract_tar_bz2(
         downloaded += chunk.len() as u64;
 
         if last_emit.elapsed().as_millis() >= 300 {
-            emit_progress(&app, model_id, "archive", downloaded, total, "downloading", None, 1, 1);
+            emit_progress(app, model_id, "archive", downloaded, total, "downloading", None, 1, 1);
             last_emit = std::time::Instant::now();
         }
     }
 
     file.flush().map_err(|e| format!("flush 失败: {}", e))?;
     drop(file);
+    Ok(())
+}
+
+pub async fn download_and_extract_tar_bz2(
+    app: AppHandle,
+    model_id: &str,
+    url: &str,
+) -> Result<(), String> {
+    let dest_dir = model_dir(model_id);
+    let archive_path = dest_dir.with_extension("tar.bz2");
+    let temp_path = dest_dir.with_extension("tar.bz2.part");
+
+    std::fs::create_dir_all(&dest_dir)
+        .map_err(|e| format!("创建目录失败: {}", e))?;
+
+    // 如果已经解压过（目录中有 onnx 文件），跳过下载
+    // funasr-nano: encoder_adaptor.int8.onnx / paraformer: model.int8.onnx / qwen3-asr: encoder.int8.onnx
+    if dest_dir.join("encoder_adaptor.int8.onnx").exists()
+        || dest_dir.join("model.int8.onnx").exists()
+        || dest_dir.join("encoder.int8.onnx").exists()
+    {
+        emit_progress(&app, model_id, "archive", 1, 1, "completed", None, 1, 1);
+        return Ok(());
+    }
+
+    // 多源下载：GitHub 地址自动优先走国内加速代理，失败再回退直连。
+    // 各镜像内容一致，可跨源断点续传（沿用已有 .part）。
+    let candidates = build_archive_candidates(url);
+    let mut last_err = String::from("无可用下载源");
+    let mut ok = false;
+    for (idx, cand) in candidates.iter().enumerate() {
+        match download_archive_once(&app, model_id, cand, &temp_path).await {
+            Ok(()) => { ok = true; break; }
+            Err(e) => {
+                log::warn!("archive 源 {}/{} 失败: {}", idx + 1, candidates.len(), e);
+                last_err = e;
+            }
+        }
+    }
+    if !ok {
+        emit_progress(&app, model_id, "archive", 0, 0, "failed", Some(&last_err), 1, 1);
+        return Err(last_err);
+    }
 
     std::fs::rename(&temp_path, &archive_path)
         .map_err(|e| format!("重命名失败: {}", e))?;
 
-    log::info!("Archive downloaded: {} ({} bytes)", model_id, downloaded);
+    log::info!("Archive downloaded: {}", model_id);
     emit_progress(&app, model_id, "extracting", 0, 0, "downloading", None, 1, 1);
 
     // 解压 tar.bz2
@@ -317,7 +363,7 @@ pub async fn download_and_extract_tar_bz2(
     // 删除压缩包
     std::fs::remove_file(&archive_path).ok();
 
-    emit_progress(&app, model_id, "archive", total, total, "completed", None, 1, 1);
+    emit_progress(&app, model_id, "archive", 1, 1, "completed", None, 1, 1);
     log::info!("Archive extracted: {}", model_id);
 
     Ok(())

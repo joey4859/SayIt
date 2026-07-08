@@ -2,11 +2,14 @@ import * as bridge from '@/services/bridge'
 import { Minus, Square, X, Wand2 } from 'lucide-react'
 import appIcon from '@/assets/ico-frame-48x48.png'
 import { useAiEnabled } from '@/hooks/useAiEnabled'
+import { useActivePreset } from '@/hooks/useActivePreset'
 import { toggleAiEnabled } from '@/stores/aiEnabled'
 import { Tooltip } from '@/components/ui/tooltip'
 
 export default function TitleBar() {
   const aiEnabled = useAiEnabled()
+  const activePreset = useActivePreset()
+  const presetName = activePreset.name || '默认'
 
   return (
     <div className="flex h-10 items-center justify-between bg-titlebar border-b select-none"
@@ -17,7 +20,7 @@ export default function TitleBar() {
       </div>
       <div className="flex items-center">
         <div className="flex items-center pr-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <Tooltip content={aiEnabled ? 'AI 整理已开启，点击关闭后将输出识别原文' : 'AI 整理已关闭，点击开启后自动整理'}>
+          <Tooltip content={`润色模式：${presetName}`}>
             <button
               type="button"
               role="switch"

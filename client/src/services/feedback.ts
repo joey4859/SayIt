@@ -10,10 +10,28 @@ export interface FeedbackPayload {
   app_version: string
   timestamp: string
   feedback_text: string
+  // 转录 + 该次会话的排错信息（仅在用户保留转录时发送）
   transcript: {
     asr_text: string
     ai_text: string
     duration_sec: number
+    // 会话排错信息
+    app_name?: string
+    app_id?: string
+    window_title?: string
+    process_name?: string
+    window_class?: string
+    asr_ms?: number
+    llm_ms?: number
+    audio_duration_sec?: number
+    char_count?: number
+    is_empty?: boolean
+    asr_provider?: string
+    ai_provider?: string
+    ai_model?: string
+    prompt_summary?: string
+    auto_applied_hotwords?: string[]
+    record_timestamp?: number
   } | null
   context: {
     work_mode: string
@@ -25,6 +43,12 @@ export interface FeedbackPayload {
     ai_preset_name: string
     ai_system_prompt: string
     ai_prompt_append: string
+    // 客户端环境（非个人信息，用于排错；不含 IP）
+    platform: string
+    os_version: string
+    system_locale: string
+    cpu_cores: number
+    memory_mb: number
   }
 }
 
@@ -40,7 +64,9 @@ export async function getLastTranscript(): Promise<HistoryRecord | null> {
 }
 
 /** 收集当前配置上下文 */
-async function collectContext(): Promise<FeedbackPayload['context']> {
+async function collectContext(
+  clientInfo: Awaited<ReturnType<typeof getClientRuntimeInfo>>,
+): Promise<FeedbackPayload['context']> {
   const workMode = getWorkMode()
   const aiEnabled = await getSetting('aiEnabled', false) as boolean
   const aiProvider = await getSetting('cloudAi.provider', '') as string
@@ -72,6 +98,11 @@ async function collectContext(): Promise<FeedbackPayload['context']> {
     ai_preset_name: activePreset.name,
     ai_system_prompt: activePreset.systemPrompt.slice(0, 5000),
     ai_prompt_append: (aiPromptAppend || '').slice(0, 5000),
+    platform: clientInfo.platform || '',
+    os_version: clientInfo.osVersion || '',
+    system_locale: clientInfo.systemLocale || '',
+    cpu_cores: clientInfo.cpuCores || 0,
+    memory_mb: clientInfo.memoryMb || 0,
   }
 }
 
@@ -91,7 +122,7 @@ export async function submitFeedback(feedbackText: string, options?: { includeTr
   // 收集信息
   const clientInfo = await getClientRuntimeInfo()
   const lastRecord = includeTranscript ? await getLastTranscript() : null
-  const context = await collectContext()
+  const context = await collectContext(clientInfo)
 
   const payload: FeedbackPayload = {
     machine_id: clientInfo.deviceId,
@@ -103,6 +134,26 @@ export async function submitFeedback(feedbackText: string, options?: { includeTr
           asr_text: (lastRecord.asrText || '').slice(0, 5000),
           ai_text: (lastRecord.llmText || '').slice(0, 5000),
           duration_sec: lastRecord.durationSec || 0,
+          // 该次会话的排错信息
+          app_name: lastRecord.appName || undefined,
+          app_id: lastRecord.appId || undefined,
+          window_title: lastRecord.windowTitle || undefined,
+          process_name: lastRecord.processName || undefined,
+          window_class: lastRecord.windowClass || undefined,
+          asr_ms: lastRecord.asrMs || undefined,
+          llm_ms: lastRecord.llmMs || undefined,
+          audio_duration_sec: lastRecord.audioDurationSec || undefined,
+          char_count: lastRecord.charCount || undefined,
+          is_empty: lastRecord.isEmpty || undefined,
+          asr_provider: lastRecord.asrProvider || undefined,
+          ai_provider: lastRecord.aiProvider || undefined,
+          ai_model: lastRecord.aiModel || undefined,
+          prompt_summary: lastRecord.promptSummary || undefined,
+          auto_applied_hotwords:
+            lastRecord.autoAppliedHotwords && lastRecord.autoAppliedHotwords.length > 0
+              ? lastRecord.autoAppliedHotwords
+              : undefined,
+          record_timestamp: lastRecord.timestamp || undefined,
         }
       : null,
     context,

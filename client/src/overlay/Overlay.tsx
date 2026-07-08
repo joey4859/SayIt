@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Copy, Check } from 'lucide-react'
 import { addRuntimeEvent } from '../services/debugLog'
 
-type OverlayState = 'waiting' | 'listening' | 'thinking' | 'fallback' | 'error'
+type OverlayState = 'waiting' | 'listening' | 'thinking' | 'fallback' | 'error' | 'toast'
 type OverlayWaveTheme = 'black-white' | 'black-blue' | 'black-rainbow'
 
 interface OverlayPayload {
@@ -17,6 +17,7 @@ interface OverlayPayload {
   fallbackReason?: string
   errorMessage?: string
   warning?: string
+  toastText?: string
 }
 
 const DEFAULT_BAR_COUNT = 24
@@ -69,6 +70,7 @@ export default function Overlay() {
   const [barCount, setBarCount] = useState(DEFAULT_BAR_COUNT)
   const [fallbackText, setFallbackText] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+  const [toastText, setToastText] = useState('')
   const [copied, setCopied] = useState(false)
   const [thinkingDuration, setThinkingDuration] = useState(0)
   const [warning, setWarning] = useState('')
@@ -133,6 +135,9 @@ export default function Overlay() {
       if (typeof payload.errorMessage === 'string') {
         setErrorMessage(payload.errorMessage)
       }
+      if (typeof payload.toastText === 'string') {
+        setToastText(payload.toastText)
+      }
       if (typeof payload.warning === 'string') {
         setWarning(payload.warning)
       }
@@ -179,7 +184,7 @@ export default function Overlay() {
     <div className="pointer-events-none flex h-full items-end justify-center pb-4">
       {state === 'fallback' ? (
         <div
-          className="pointer-events-auto flex w-full max-w-[520px] flex-col rounded-xl border px-4 py-4 shadow-[0_8px_20px_rgba(0,0,0,0.25)]"
+          className="pointer-events-auto flex w-full max-w-[520px] flex-col rounded-xl border px-4 py-4"
           style={{
             background: 'var(--overlay-bg)',
             color: 'var(--overlay-text)',
@@ -214,7 +219,7 @@ export default function Overlay() {
         </div>
       ) : (
         <div
-          className="flex items-center rounded-full border px-4 py-2 shadow-[0_6px_16px_rgba(0,0,0,0.35)]"
+          className="flex items-center rounded-full border px-4 py-2"
           style={{
             background: 'var(--overlay-bg)',
             color: 'var(--overlay-text)',
@@ -292,6 +297,14 @@ export default function Overlay() {
           {state === 'error' && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-red-400">{errorMessage || '出错了'}</span>
+            </div>
+          )}
+
+          {state === 'toast' && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs whitespace-nowrap" style={{ color: 'var(--overlay-text)' }}>
+                {toastText}
+              </span>
             </div>
           )}
         </div>

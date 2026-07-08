@@ -52,6 +52,24 @@ let ws: WebSocket | null = null
 let callbacks: WSCallbacks = {}
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let intentionalClose = false
+
+// --- 重连退避 ---
+let reconnectAttempts = 0
+const RECONNECT_BASE_MS = 3000
+const RECONNECT_MAX_MS = 30_000
+// 服务端限流类关闭码（1013 服务器满、4029 该 IP 并发超限）：退避更久，避免重连风暴
+const RECONNECT_LIMIT_MIN_MS = 15_000
+const LIMIT_CLOSE_CODES = new Set([1013, 4029])
+
+/** 计算下次重连延迟：指数退避 + ±20% 抖动；限流码时至少退避 RECONNECT_LIMIT_MIN_MS */
+function computeReconnectDelayMs(closeCode?: number): number {
+  const exp = Math.min(RECONNECT_BASE_MS * 2 ** reconnectAttempts, RECONNECT_MAX_MS)
+  const base = closeCode !== undefined && LIMIT_CLOSE_CODES.has(closeCode)
+    ? Math.max(exp, RECONNECT_LIMIT_MIN_MS)
+    : exp
+  const jitter = base * 0.2 * (Math.random() * 2 - 1)
+  return Math.max(1000, Math.round(base + jitter))
+}
 let sessionStarted = false
 let audioDropWarned = false
 
@@ -161,6 +179,7 @@ export function connect(cbs: WSCallbacks): Promise<void> {
     socket.onopen = () => {
       clearTimeout(timeout)
       updateGlobalState('connected')
+      reconnectAttempts = 0
       if (reconnectTimer) {
         clearTimeout(reconnectTimer)
         reconnectTimer = null
@@ -238,14 +257,16 @@ export function connect(cbs: WSCallbacks): Promise<void> {
       ws = null
       updateGlobalState('disconnected')
 
-      if (!intentionalClose) {
-        addRuntimeEvent('warn', 'websocket', `连接关闭 code=${ev.code} reason=${ev.reason || '-'}`)
-      }
-
       endSessionIfNeeded()
 
       if (!intentionalClose) {
-        reconnectTimer = setTimeout(() => connect(callbacks), 3000)
+        const delay = computeReconnectDelayMs(ev.code)
+        addRuntimeEvent('warn', 'websocket', `连接关闭 code=${ev.code} reason=${ev.reason || '-'}，${Math.round(delay / 1000)}s 后重连`, {
+          code: ev.code,
+          attempt: reconnectAttempts + 1,
+        })
+        reconnectAttempts++
+        reconnectTimer = setTimeout(() => connect(callbacks), delay)
       }
     }
   })
@@ -253,6 +274,7 @@ export function connect(cbs: WSCallbacks): Promise<void> {
 
 export function disconnect() {
   intentionalClose = true
+  reconnectAttempts = 0
   stopHeartbeat()
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)

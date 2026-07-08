@@ -39,6 +39,7 @@ export class LocalProvider extends BufferedProvider {
         audioB64,
         modelId: await getSetting('localAsr.modelId', 'sensevoice-small'),
         language: await getSetting('localAsr.language', 'auto'),
+        hotwords: this.startOpts?.hotwords ?? [],
       })
       asrText = result.text
       asrMs = result.elapsed_ms

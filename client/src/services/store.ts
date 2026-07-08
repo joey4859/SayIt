@@ -27,6 +27,10 @@ export interface HistoryRecord {
   audioFilePath?: string
   appId?: string
   appName?: string
+  // 录音时聚焦窗口的原始信息（用于反馈排错）
+  windowTitle?: string
+  processName?: string
+  windowClass?: string
   promptPresetId?: string
   promptPresetName?: string
   promptRuleId?: string
@@ -327,6 +331,16 @@ export async function getActivePresetId(): Promise<string> {
 
 export async function setActivePresetId(id: string): Promise<void> {
   await api().storeSet('activePresetId', id)
+}
+
+// 润色模式切换快捷键：presetId -> 组合键（如 "Alt+1"）。独立于 PromptPreset 存储，
+// 便于 Rust 端直接读取并注册（内置预设定义在 TS，不在 store 中）。
+export async function getPresetShortcuts(): Promise<Record<string, string>> {
+  return ((await api().storeGet('presetShortcuts')) as Record<string, string>) || {}
+}
+
+export async function setPresetShortcuts(map: Record<string, string>): Promise<void> {
+  await api().storeSet('presetShortcuts', map)
 }
 
 export async function getActivePreset(): Promise<PromptPreset> {

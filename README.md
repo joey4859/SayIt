@@ -13,6 +13,8 @@
 
 **[下载客户端](https://github.com/crosswk/SayIt/releases/latest)** · **[网页版体验](https://sayitapp.site)** · **[配置文档](docs/)**
 
+**视频介绍：[我做了一个开源 AI 语音输入法——SayIt](https://www.bilibili.com/video/BV1JLTs6REPU/)**（B 站）
+
 </div>
 
 ---
@@ -129,7 +131,7 @@ cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 - **全局语音输入** — 在任何应用中按下快捷键即可口述，文字自动插入光标位置
 - **AI 智能润色** — 口语自动转书面语，去口癖、纠错、分段，Prompt 完全可自定义
-- **多种语音识别** — 豆包 ASR、千问 ASR、本地离线识别（sherpa-onnx）
+- **多种语音识别** — 豆包 ASR、千问 ASR，以及本地离线识别（SenseVoice、Qwen3-ASR，基于 sherpa-onnx）
 - **热词增强** — 自定义专业术语词表，提升识别准确率
 - **悬浮窗反馈** — 录音状态、波形动画、处理进度实时可见
 - **历史记录** — 所有转录结果本地保存，支持搜索和收藏
@@ -162,15 +164,15 @@ SayIt/
 
 ## 技术栈
 
-| 层 | 技术 |
-|----|------|
-| 桌面客户端 | Tauri v2、React、TypeScript、Tailwind CSS |
-| 客户端系统集成 | Rust（全局键盘钩子、剪贴板、SQLite） |
-| 后端服务 | Python、FastAPI、WebSocket |
-| 语音识别 | Qwen3-ASR + vLLM / 豆包 ASR / 千问 ASR / sherpa-onnx |
-| AI 润色 | DeepSeek / 通义千问 / Azure OpenAI / Ollama |
-| 部署 | Docker Compose、NVIDIA Container Toolkit |
-| 开发 | 整个项目使用 Claude Opus 开发 |
+| 层　　　　　　 | 技术　　　　　　　　　　　　　　　　　　　　　　　　 |
+| ----------------| ------------------------------------------------------|
+| 桌面客户端　　 | Tauri v2、React、TypeScript、Tailwind CSS　　　　　　|
+| 客户端系统集成 | Rust（全局键盘钩子、剪贴板、SQLite）　　　　　　　　 |
+| 后端服务　　　 | Python、FastAPI、WebSocket　　　　　　　　　　　　　 |
+| 语音识别　　　 | Qwen3-ASR + vLLM / 豆包 ASR / 千问 ASR / sherpa-onnx |
+| AI 润色　　　　| DeepSeek / 通义千问 / Azure OpenAI / Ollama　　　　　|
+| 部署　　　　　 | Docker Compose、NVIDIA Container Toolkit　　　　　　 |
+| 开发　　　　　 | 整个项目使用 Claude Opus 开发　　　　　　　　　　　　|
 
 ## 开发
 
@@ -197,13 +199,16 @@ cd backend && uvicorn app.main:app --port 8000
 
 ## 交流反馈
 
-有任何问题、建议或想法，欢迎扫码加入用户反馈微信群，一起交流：
+关注微信公众号获取更新动态，或扫码加入用户反馈微信群一起交流：
 
 <div align="center">
 
-<img src="docs/images/readme/SayIt%20用户反馈微信群.jpg" width="240" alt="SayIt 用户反馈微信群">
-
-*微信扫码加入 SayIt 用户反馈群*
+<table>
+<tr>
+<td align="center"><img src="docs/images/readme/微信公众号.jpg" width="220" alt="SayIt 微信公众号"><br>微信公众号</td>
+<td align="center"><img src="docs/images/readme/SayIt%20用户反馈微信群.jpg" width="220" alt="SayIt 用户反馈微信群"><br>用户反馈群</td>
+</tr>
+</table>
 
 </div>
 

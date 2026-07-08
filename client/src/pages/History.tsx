@@ -227,6 +227,7 @@ async function reprocessViaCloudApi(
 /** 本地模式重新识别：调用 local_transcribe + 可选 cloud_polish，与 LocalProvider 一致 */
 async function reprocessViaLocal(
   chunk: ArrayBuffer,
+  hotwords: string[],
   aiEnabled: boolean,
   systemPrompt: string | undefined,
 ): Promise<ReprocessResult> {
@@ -237,7 +238,7 @@ async function reprocessViaLocal(
   const language = await getSetting('localAsr.language', 'auto') as string
 
   const asrResult = await invoke<{ text: string; elapsed_ms: number }>('local_transcribe', {
-    audioB64, modelId, language,
+    audioB64, modelId, language, hotwords,
   })
   const asrText = asrResult.text
   const asrMs = asrResult.elapsed_ms
@@ -420,7 +421,7 @@ export default function History() {
     if (workMode === 'cloud_api') {
       result = await reprocessViaCloudApi(chunk, hotwords, Boolean(aiEnabled), systemPrompt)
     } else if (workMode === 'local') {
-      result = await reprocessViaLocal(chunk, Boolean(aiEnabled), systemPrompt)
+      result = await reprocessViaLocal(chunk, hotwords, Boolean(aiEnabled), systemPrompt)
     } else {
       result = await reprocessViaServer(chunk, hotwords, Boolean(aiEnabled), systemPrompt, clientMeta)
     }

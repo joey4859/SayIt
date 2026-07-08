@@ -55,6 +55,14 @@ pub fn list_downloaded_models() -> Vec<LocalModelInfo> {
                         && model_path.join("llm.int8.onnx").exists()
                         && model_path.join("embedding.int8.onnx").exists()
                         && model_path.join("Qwen3-0.6B").exists();
+                } else if model.model_type == "qwen3-asr" {
+                    complete = model_path.join("conv_frontend.onnx").exists()
+                        && model_path.join("encoder.int8.onnx").exists()
+                        && model_path.join("decoder.int8.onnx").exists()
+                        && model_path.join("tokenizer").exists();
+                } else if model.model_type == "paraformer" {
+                    complete = model_path.join("model.int8.onnx").exists()
+                        && model_path.join("tokens.txt").exists();
                 } else if model.model_type == "fire-red-ctc" {
                     complete = model_path.join("model.int8.onnx").exists()
                         && model_path.join("tokens.txt").exists();

@@ -15,6 +15,7 @@ import About from './pages/About'
 import { initRecorder, cleanup } from './services/recorder'
 import { initTheme } from './stores/theme'
 import { initAiEnabled } from './stores/aiEnabled'
+import { initActivePreset } from './stores/activePreset'
 import { getSetting, setSetting } from './services/store'
 import { runAutoUpdate } from './features/update/autoUpdate'
 import UpdateDialog from './features/update/UpdateDialog'
@@ -22,10 +23,13 @@ import * as bridge from './services/bridge'
 
 export default function App() {
   const [showWelcome, setShowWelcome] = useState(false)
+  // 首次挂载时先不渲染主界面，等 onboarding 检查完成再决定，避免"闪一下主页再进向导"
+  const [onboardingChecked, setOnboardingChecked] = useState(false)
 
   useEffect(() => {
     void initTheme()
     void initAiEnabled()
+    void initActivePreset()
     initRecorder()
     void runAutoUpdate()
 
@@ -35,6 +39,7 @@ export default function App() {
       if (!onboardedVersion) {
         setShowWelcome(true)
       }
+      setOnboardingChecked(true)
     })()
 
     return () => cleanup()
@@ -45,6 +50,11 @@ export default function App() {
     void setSetting('onboardingVersion', __APP_VERSION__)
     // 向导完成后通知 Rust 端重新加载快捷键配置
     bridge.notifyShortcutsChanged()
+  }
+
+  // onboarding 检查未完成前只渲染与背景同色的空壳，避免首次安装时主页闪现
+  if (!onboardingChecked) {
+    return <div className="h-screen bg-background" />
   }
 
   return (

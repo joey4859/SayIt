@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Mic, Clock, Type, Zap } from 'lucide-react'
 import { getStats, type Stats, getSetting } from '@/services/store'
+import { SHORTCUTS_CHANGED_EVENT } from '@/services/bridge'
 import FeedbackSection from '@/components/FeedbackSection'
 
 export default function Home() {
@@ -10,7 +11,12 @@ export default function Home() {
 
   useEffect(() => {
     getStats().then(setStats)
-    getSetting('shortcutHandsFree', 'AltRight').then((value) => setHandsFreeKey(value as string))
+    const loadHandsFreeKey = () =>
+      getSetting('shortcutHandsFree', 'AltRight').then((value) => setHandsFreeKey(value as string))
+    void loadHandsFreeKey()
+    // 快捷键变化时（向导 / 设置页修改）实时刷新首页提示，无需切换路由
+    window.addEventListener(SHORTCUTS_CHANGED_EVENT, loadHandsFreeKey)
+    return () => window.removeEventListener(SHORTCUTS_CHANGED_EVENT, loadHandsFreeKey)
   }, [])
 
   // Format time display

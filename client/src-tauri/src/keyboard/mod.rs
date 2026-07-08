@@ -19,34 +19,44 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_SYSKEYDOWN, WM_SYSKEYUP, WM_QUIT,
 };
 
+/// 单键热键表 —— 单一数据源。
+///
+/// ⚠️ 必须与前端 `client/src/lib/shortcutKeys.ts` 的 `SINGLE_KEYS` 保持一致
+/// （Rust 无法直接引用 TS，新增/修改单键时两边都要改）。
+/// `setting` 取值等于 DOM KeyboardEvent.code。
+const SINGLE_KEY_TABLE: &[(&str, u32)] = &[
+    ("AltLeft", 0xA4),
+    ("AltRight", 0xA5),
+    ("ControlLeft", 0xA2),
+    ("ControlRight", 0xA3),
+    ("ShiftLeft", 0xA0),
+    ("ShiftRight", 0xA1),
+    ("CapsLock", 0x14),
+    ("Space", 0x20),
+    ("ContextMenu", 0x5D),
+    ("Pause", 0x13),
+    ("ScrollLock", 0x91),
+    ("Insert", 0x2D),
+    ("F1", 0x70), ("F2", 0x71), ("F3", 0x72), ("F4", 0x73),
+    ("F5", 0x74), ("F6", 0x75), ("F7", 0x76), ("F8", 0x77),
+    ("F9", 0x78), ("F10", 0x79), ("F11", 0x7A), ("F12", 0x7B),
+];
+
 /// Virtual key code mapping for PTT settings
 fn vk_codes_for_setting(setting: &str) -> Vec<u32> {
-    match setting {
-        "" => vec![],
-        "AltLeft" => vec![0xA4],
-        "AltRight" => vec![0xA5],
-        "ControlLeft" => vec![0xA2],
-        "ControlRight" => vec![0xA3],
-        "ShiftLeft" => vec![0xA0],
-        "ShiftRight" => vec![0xA1],
-        "CapsLock" => vec![0x14],
-        "Space" => vec![0x20],
-        "F1" => vec![0x70],  "F2" => vec![0x71],  "F3" => vec![0x72],
-        "F4" => vec![0x73],  "F5" => vec![0x74],  "F6" => vec![0x75],
-        "F7" => vec![0x76],  "F8" => vec![0x77],  "F9" => vec![0x78],
-        "F10" => vec![0x79], "F11" => vec![0x7A], "F12" => vec![0x7B],
-        _ => vec![0xA5], // default: AltRight
+    if setting.is_empty() {
+        return vec![];
     }
+    SINGLE_KEY_TABLE
+        .iter()
+        .find(|(s, _)| *s == setting)
+        .map(|(_, vk)| vec![*vk])
+        .unwrap_or_else(|| vec![0xA5]) // default: AltRight
 }
 
 /// Check if a shortcut setting is a single key (handled by hook) vs combo (handled by global_shortcut)
 pub fn is_single_key_setting(setting: &str) -> bool {
-    matches!(setting,
-        "AltLeft" | "AltRight" | "ControlLeft" | "ControlRight" |
-        "ShiftLeft" | "ShiftRight" | "CapsLock" | "Space" |
-        "F1" | "F2" | "F3" | "F4" | "F5" | "F6" |
-        "F7" | "F8" | "F9" | "F10" | "F11" | "F12"
-    )
+    SINGLE_KEY_TABLE.iter().any(|(s, _)| *s == setting)
 }
 
 #[allow(dead_code)]

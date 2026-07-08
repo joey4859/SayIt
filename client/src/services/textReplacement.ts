@@ -32,6 +32,52 @@ export async function saveTextReplacements(rules: TextReplacementRule[]): Promis
   await setSetting(STORAGE_KEY, rules)
 }
 
+/** 批量文本解析出的规则草稿（尚未分配 id/enabled） */
+export interface ParsedReplacement {
+  from: string
+  to: string
+}
+
+/**
+ * 解析批量输入文本为替换规则草稿。
+ * - 每行一条规则；空行忽略。
+ * - 分隔符支持：制表符（从表格粘贴）、`=>`、`->`、中文逗号「，」、英文逗号「,」。
+ *   取整行中最靠前出现的分隔符切分：分隔符前为「原文」，其后（含其余分隔符）为「替换为」。
+ * - 无分隔符的行：整行作为「原文」，替换为留空（即删除该文本）。
+ * - 原文为空的行忽略。
+ */
+export function parseBatchReplacements(input: string): ParsedReplacement[] {
+  const separators = ['\t', '=>', '->', '，', ',']
+  const result: ParsedReplacement[] = []
+
+  for (const rawLine of input.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line) continue
+
+    let sepIndex = -1
+    let sepLen = 0
+    for (const sep of separators) {
+      const i = line.indexOf(sep)
+      if (i >= 0 && (sepIndex === -1 || i < sepIndex)) {
+        sepIndex = i
+        sepLen = sep.length
+      }
+    }
+
+    let from = line
+    let to = ''
+    if (sepIndex >= 0) {
+      from = line.slice(0, sepIndex).trim()
+      to = line.slice(sepIndex + sepLen).trim()
+    }
+
+    if (!from) continue
+    result.push({ from, to })
+  }
+
+  return result
+}
+
 /** 对文本应用所有启用的替换规则 */
 export function applyReplacements(text: string, rules: TextReplacementRule[]): string {
   let result = text

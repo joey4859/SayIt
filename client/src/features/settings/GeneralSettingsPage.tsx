@@ -27,6 +27,7 @@ export default function GeneralSettingsPage() {
   const [testing, setTesting] = useState(false)
   const [volumeLevel, setVolumeLevel] = useState<MicVolumeLevel>('idle')
   const [micError, setMicError] = useState('')
+  const [muteSystemAudio, setMuteSystemAudio] = useState(false)
   const [pttKey, setPttKey] = useState('AltLeft')
   const [handsFreeKey, setHandsFreeKey] = useState('Alt+L')
   const [audioRetentionEnabled, setAudioRetentionEnabled] = useState(true)
@@ -41,6 +42,7 @@ export default function GeneralSettingsPage() {
     bridge.getAutoLaunch().then(setAutoLaunch)
     getSetting('autoCheckUpdate', true).then((value) => setAutoCheckUpdate(Boolean(value)))
     getSetting('selectedMic', '').then(setSelectedMic)
+    getSetting('muteSystemAudioWhileRecording', false).then((value) => setMuteSystemAudio(Boolean(value)))
     getSetting('shortcutPTT', 'AltRight').then((value) => setPttKey(value as string))
     getSetting('shortcutHandsFree', 'Alt+L').then((value) => setHandsFreeKey(value as string))
     getSetting('audioRetentionEnabled', true).then((value) => setAudioRetentionEnabled(Boolean(value)))
@@ -59,6 +61,7 @@ export default function GeneralSettingsPage() {
   const toggleAutoLaunch = async () => { const next = !autoLaunch; setAutoLaunch(next); await bridge.setAutoLaunch(next) }
   const toggleAutoCheckUpdate = async () => { const next = !autoCheckUpdate; setAutoCheckUpdate(next); await setSetting('autoCheckUpdate', next) }
   const handleMicChange = async (deviceId: string) => { setSelectedMic(deviceId); await setSetting('selectedMic', deviceId); await refreshRecorderSettings() }
+  const toggleMuteSystemAudio = async () => { const next = !muteSystemAudio; setMuteSystemAudio(next); await setSetting('muteSystemAudioWhileRecording', next); await refreshRecorderSettings() }
   const toggleAudioRetention = async () => { const next = !audioRetentionEnabled; setAudioRetentionEnabled(next); await setSetting('audioRetentionEnabled', next) }
   const toggleReadySound = async () => { const next = !readySoundEnabled; setReadySoundEnabled(next); await setSetting('readySoundEnabled', next); await refreshRecorderSettings() }
   const handleAudioRetentionDaysChange = async (value: number) => { setAudioRetentionDays(value); await setSetting('audioRetentionDays', value) }
@@ -161,13 +164,20 @@ export default function GeneralSettingsPage() {
         </Card>
 
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="space-y-4 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">录音就绪提示音</p>
                 <p className="text-xs text-muted-foreground">按下热键后，录音准备好时播放一声短促提示音</p>
               </div>
               <Switch checked={readySoundEnabled} onChange={() => void toggleReadySound()} />
+            </div>
+            <div className="flex items-center justify-between border-t border-border pt-4">
+              <div>
+                <p className="text-sm font-medium">录音时静音系统声音</p>
+                <p className="text-xs text-muted-foreground">按住说话期间临时静音外放，避免被麦克风录入</p>
+              </div>
+              <Switch checked={muteSystemAudio} onChange={() => void toggleMuteSystemAudio()} />
             </div>
           </CardContent>
         </Card>
