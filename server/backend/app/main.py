@@ -24,6 +24,7 @@ from .diagnostics import create_upload_token, router as diagnostics_router
 from .llm import LLMEngine
 from .logging_setup import attach_database_log_handler, bind_log_context, configure_logging, reset_log_context
 from .ratelimit import RateLimitMiddleware
+from .notice import read_notice
 from .releases import read_public_download, read_release_manifest, resolve_release_file
 from .telemetry import TelemetryService
 
@@ -517,6 +518,12 @@ async def post_feedback(request: Request):
         )
     logger.info("Feedback from %s: %s", machine_id, feedback_text[:100])
     return JSONResponse({"ok": True}, 200)
+
+
+@app.get("/api/notice")
+async def get_notice():
+    """运营公告：客户端据此在 App 内展示通知。无公告时返回空对象。"""
+    return JSONResponse(read_notice(cfg), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/desktop-updates/{platform}/{arch}/manifest")

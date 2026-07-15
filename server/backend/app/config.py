@@ -36,6 +36,7 @@ class GatewayConfig:
 class PathsConfig:
     prompt_dir: str = str(_PROJECT_ROOT / "prompts")
     releases_dir: str = str(_PROJECT_ROOT / "releases")
+    notices_dir: str = str(_PROJECT_ROOT / "notices")
 
 
 @dataclass(slots=True)
@@ -460,6 +461,7 @@ def load_config(config_path: str | None = None, env_path: str | None = None) -> 
         paths=PathsConfig(
             prompt_dir=prompt_dir,
             releases_dir=_resolve_path(paths_raw.get("releases_dir"), _PROJECT_ROOT / "releases"),
+            notices_dir=_resolve_path(paths_raw.get("notices_dir"), _PROJECT_ROOT / "notices"),
         ),
         asr=ASRConfig(
             engine=str(asr_raw.get("engine") or defaults.asr.engine),
