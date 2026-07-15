@@ -3,7 +3,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Github, Download, Loader2, CheckCircle } from 'lucide-react'
 import { open as shellOpen } from '@tauri-apps/plugin-shell'
-import { getAutoUpdateState, onAutoUpdateChange, checkNow, downloadNow, installNow, type AutoUpdateState } from '@/features/update/autoUpdate'
+import { getAutoUpdateState, onAutoUpdateChange, checkAndUpdateNow, downloadNow, installNow, type AutoUpdateState } from '@/features/update/autoUpdate'
 import { RELEASE_HIGHLIGHTS } from '@/features/update/releaseHighlights'
 import appIcon from '@/assets/icon-128.png'
 
@@ -116,7 +116,7 @@ export default function About() {
                 )}
                 {/* 检查更新按钮 */}
                 {!downloading && !installing && !downloaded && (
-                  <Button variant="outline" size="sm" onClick={() => void checkNow()} disabled={checking}>
+                  <Button variant="outline" size="sm" onClick={() => void checkAndUpdateNow()} disabled={checking}>
                     {checking ? '检查中...' : '检查更新'}
                   </Button>
                 )}

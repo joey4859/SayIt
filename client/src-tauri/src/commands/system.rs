@@ -368,14 +368,30 @@ pub fn install_downloaded_update(file_path: String, app: AppHandle) -> Result<()
             .map_err(|e| format!("获取当前程序路径失败: {}", e))?;
         let exe_str = current_exe.to_string_lossy().to_string();
 
-        // start /wait 会等安装程序进程退出后才继续，/S 走静默安装。
-        // 安装完成后拉起新 exe，带 --open-about 让新实例自动跳转到关于页。
-        let watchdog_cmd = format!(
-            "start /wait \"\" \"{}\" /S && start \"\" \"{}\" --open-about",
-            file_path, exe_str
+        // 用一个临时 .bat 脚本接管"等安装完成再拉起新版本"。
+        // 关键：不要把带引号、含 && 的复合命令直接塞给 `cmd /C`——Rust 会把这个
+        // 含空格的参数整体再套引号并把内部 " 转义成 \"，而 cmd.exe 不认识 \" 转义，
+        // 导致路径被啃坏（历史 bug：装完自动重启报「找不到 \ 文件」）。
+        // 脚本文件里的引号是文件字面量，不经过参数转义层，最稳；给 cmd /C 传单个
+        // 脚本路径是 cmd 唯一能干净处理的情形。
+        //   - ping 兜 ~1s，等旧进程完全退出，避免安装程序覆盖 exe 时撞文件锁
+        //   - start /wait 等静默安装结束，再拉起新 exe（--open-about 跳转关于页）
+        //   - del "%~f0" 让脚本运行完自删
+        let script = format!(
+            "@echo off\r\n\
+             ping -n 2 127.0.0.1 >nul\r\n\
+             start /wait \"\" \"{installer}\" /S\r\n\
+             start \"\" \"{exe}\" --open-about\r\n\
+             del \"%~f0\"\r\n",
+            installer = file_path,
+            exe = exe_str,
         );
+        let script_path = std::env::temp_dir().join("sayit-update-relaunch.bat");
+        std::fs::write(&script_path, script)
+            .map_err(|e| format!("写入更新重启脚本失败: {}", e))?;
+
         Command::new("cmd")
-            .args(["/C", &watchdog_cmd])
+            .args(["/C", &script_path.to_string_lossy()])
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| format!("启动安装看门人进程失败: {}", e))?;

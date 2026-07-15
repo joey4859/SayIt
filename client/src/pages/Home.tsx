@@ -4,6 +4,7 @@ import { Mic, Clock, Type, Zap } from 'lucide-react'
 import { getStats, type Stats, getSetting } from '@/services/store'
 import { SHORTCUTS_CHANGED_EVENT } from '@/services/bridge'
 import FeedbackSection from '@/components/FeedbackSection'
+import NoticeBanner from '@/components/NoticeBanner'
 
 export default function Home() {
   const [stats, setStats] = useState<Stats>({ totalDurationSec: 0, totalChars: 0 })
@@ -91,6 +92,8 @@ export default function Home() {
       <p className="mb-8 text-sm text-muted-foreground">
         按下 <span className="px-1.5 py-0.5 text-muted-foreground bg-secondary border border-border rounded">{formatKey(handsFreeKey)}</span> 开始口述，再按一次结束并插入文本。
       </p>
+
+      <NoticeBanner />
 
       {isNewUser && (
         <div className="mb-6 rounded-xl border border-border bg-muted/30 px-5 py-5 text-center">

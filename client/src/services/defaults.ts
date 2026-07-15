@@ -77,6 +77,9 @@ export const DEFAULTS: Record<string, unknown> = {
 
   // ── 引导 ──
   onboardingVersion: '', // 已完成引导的版本号，空字符串 = 未完成
+
+  // ── 远程公告 ──
+  dismissedNoticeIds: [], // 已被用户关闭的公告 id 列表
 }
 
 /**

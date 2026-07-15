@@ -54,7 +54,39 @@ export function onAutoUpdateChange(cb: (state: AutoUpdateState) => void) {
   return () => { listeners.delete(cb) }
 }
 
-/** 手动触发一次检查更新（关于页“检查更新”按钮使用），与启动自动检查共用同一状态与并发锁 */
+/**
+ * 手动触发「检查并更新」（关于页“检查更新”按钮使用）：
+ * 检查 → 发现新版本则自动下载 → 自动安装，一步到位，与开机自动更新同一套流程。
+ * 与启动自动检查共用并发锁，不会重复触发。
+ */
+export async function checkAndUpdateNow(): Promise<void> {
+  if (inFlight) { await inFlight; return }
+  const task = (async () => {
+    setState({ phase: 'checking', error: null })
+    const info = await checkVersionUpdate(__APP_VERSION__)
+    setState({ phase: 'checked', versionInfo: info, checkedAt: Date.now() })
+
+    if (!info?.hasUpdate || !info.downloadUrl) return
+
+    setState({ phase: 'downloading', version: info.latestVersion || undefined, downloadPercent: 0 })
+    try {
+      const filePath = await bridge.downloadUpdate(info.downloadUrl)
+      setState({ phase: 'downloaded', downloadedFilePath: filePath, downloadPercent: 100 })
+
+      // 通知用户即将安装，给 3 秒缓冲
+      setState({ phase: 'installing', version: info.latestVersion || undefined })
+      await new Promise((r) => setTimeout(r, 3000))
+
+      await bridge.installDownloadedUpdate(filePath)
+    } catch (err) {
+      setState({ phase: 'checked', error: String(err) })
+    }
+  })()
+  inFlight = task.finally(() => { inFlight = null })
+  await inFlight
+}
+
+/** 手动触发一次检查更新（仅检查、不下载），与启动自动检查共用同一状态与并发锁 */
 export async function checkNow(): Promise<VersionInfo> {
   if (inFlight) {
     await inFlight
