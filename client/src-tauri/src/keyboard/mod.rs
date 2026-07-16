@@ -31,6 +31,16 @@ static HOOK_RUNNING: AtomicBool = AtomicBool::new(false);
 /// reconfigure() 累计调用次数，用于确认"过一段时间失效"是否与设置变更相关。
 static RECONFIGURE_COUNT: AtomicU64 = AtomicU64::new(0);
 
+// ── 看门狗写日志的节流状态 ──
+// 每 60s 采样一次是廉价的，但没必要每次都写日志：正常时全是同样的正常值，纯噪音。
+// 只在"状态翻转 / 失败计数增加 / 距上次写日志超过心跳间隔"时才落一行。
+static WD_LAST_LOG_MS: AtomicI64 = AtomicI64::new(0);
+static WD_LAST_HOOK_RUNNING: AtomicBool = AtomicBool::new(false);
+static WD_LAST_DISPATCHER_ALIVE: AtomicBool = AtomicBool::new(false);
+static WD_LAST_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
+/// 一切正常时的心跳间隔：每 10 分钟落一行，证明进程还活着。
+const WD_HEARTBEAT_MS: i64 = 10 * 60 * 1000;
+
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
@@ -177,7 +187,7 @@ impl Drop for DispatcherAliveGuard {
 
 /// 供看门狗线程读取的健康快照，写入 sayit.log 供事后排查。
 /// 复现问题后搜索 `[ptt-watchdog]` 即可看到当时的钩子/dispatcher 状态。
-pub fn write_health_snapshot() {
+pub fn write_health_snapshot(reason: &str) {
     let last_cb = LAST_CALLBACK_MS.load(Ordering::SeqCst);
     let last_cb_age_ms = if last_cb == 0 { -1 } else { now_ms() - last_cb };
     let dispatcher_alive = DISPATCHER_ALIVE.load(Ordering::SeqCst);
@@ -185,21 +195,42 @@ pub fn write_health_snapshot() {
     let fail_count = TRY_SEND_FAIL_COUNT.load(Ordering::SeqCst);
     let max_dur_us = MAX_CALLBACK_DURATION_US.load(Ordering::SeqCst);
     crate::commands::system::write_log_line(&format!(
-        "[ptt-watchdog] hook_running={} dispatcher_alive={} last_callback_age_ms={} \
+        "[ptt-watchdog] reason={} hook_running={} dispatcher_alive={} last_callback_age_ms={} \
          try_send_fail_count={} max_callback_duration_us={}",
-        hook_running, dispatcher_alive, last_cb_age_ms, fail_count, max_dur_us,
+        reason, hook_running, dispatcher_alive, last_cb_age_ms, fail_count, max_dur_us,
     ));
 }
 
-/// 启动一个每 60 秒记录一次健康快照的看门狗线程。整个进程生命周期内只需启动一次
+/// 启动一个每 60 秒采样一次健康状态的看门狗线程。整个进程生命周期内只需启动一次
 /// （在 main.rs 的 setup 阶段调用），与具体某次 hook 的 start/stop/reconfigure 无关。
+///
+/// 采样廉价、写日志克制：仅在①钩子/分发线程存活状态翻转、②投递失败计数增加、
+/// ③距上次落盘超过心跳间隔（10 分钟）时才写一行，避免正常运行时刷屏。
 pub fn spawn_health_watchdog() {
     let _ = thread::Builder::new()
         .name("ptt-watchdog".to_string())
         .spawn(|| {
             loop {
                 thread::sleep(std::time::Duration::from_secs(60));
-                write_health_snapshot();
+
+                let hook_running = HOOK_RUNNING.load(Ordering::SeqCst);
+                let dispatcher_alive = DISPATCHER_ALIVE.load(Ordering::SeqCst);
+                let fail_count = TRY_SEND_FAIL_COUNT.load(Ordering::SeqCst);
+
+                let state_changed = hook_running != WD_LAST_HOOK_RUNNING.load(Ordering::SeqCst)
+                    || dispatcher_alive != WD_LAST_DISPATCHER_ALIVE.load(Ordering::SeqCst)
+                    || fail_count != WD_LAST_FAIL_COUNT.load(Ordering::SeqCst);
+
+                let last_log = WD_LAST_LOG_MS.load(Ordering::SeqCst);
+                let heartbeat_due = last_log == 0 || (now_ms() - last_log) >= WD_HEARTBEAT_MS;
+
+                if state_changed || heartbeat_due {
+                    write_health_snapshot(if state_changed { "change" } else { "heartbeat" });
+                    WD_LAST_HOOK_RUNNING.store(hook_running, Ordering::SeqCst);
+                    WD_LAST_DISPATCHER_ALIVE.store(dispatcher_alive, Ordering::SeqCst);
+                    WD_LAST_FAIL_COUNT.store(fail_count, Ordering::SeqCst);
+                    WD_LAST_LOG_MS.store(now_ms(), Ordering::SeqCst);
+                }
             }
         });
 }
