@@ -1,6 +1,7 @@
 // OpenAI 兼容 AI 供应商
 // 覆盖所有支持 /v1/chat/completions 的服务：DeepSeek、通义、豆包（火山方舟）等
 
+use super::prompt::wrap_user_text;
 use super::types::{AiProviderConfig, AiResult, TestResult};
 use std::time::Instant;
 
@@ -21,7 +22,7 @@ pub async fn polish(
     let url = format!("{}/chat/completions", base_url);
 
     let sys_prompt = system_prompt.unwrap_or("你是语音转文本的校对助手。");
-    let user_content = format!("请处理以下语音转写文本：\n\n{}", text);
+    let user_content = wrap_user_text(text);
 
     let mut body = serde_json::json!({
         "model": config.model,

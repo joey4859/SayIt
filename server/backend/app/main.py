@@ -442,7 +442,9 @@ async def _run_asr_llm(
 
     llm_text, llm_ms, llm_debug = asr_text, 0, {}
     if asr_text and selected_llm and selected_profile.enabled and not disable_ai:
-        llm_text, llm_ms, llm_debug = await selected_llm.polish(asr_text, system_prompt)
+        llm_text, llm_ms, llm_debug = await selected_llm.polish(
+            asr_text, system_prompt, is_web_demo=use_web_demo_profile,
+        )
         if cfg.logging.slow_llm_ms and llm_ms >= cfg.logging.slow_llm_ms:
             logger.warning("Slow LLM detected duration_sec=%.2f llm_ms=%d", duration, llm_ms)
 

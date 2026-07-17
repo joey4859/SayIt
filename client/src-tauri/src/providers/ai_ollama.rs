@@ -1,6 +1,7 @@
 // Ollama AI 供应商
 // 调用本地 Ollama 的 /api/generate 接口
 
+use super::prompt::wrap_user_text;
 use super::types::{AiProviderConfig, AiResult, TestResult};
 use std::time::Instant;
 
@@ -19,7 +20,9 @@ pub async fn polish(
 
     let url = normalize_url(&config.api_url);
     let sys_prompt = system_prompt.unwrap_or("你是语音转文本的校对助手。");
-    let combined = format!("{}\n\n请处理以下语音转写文本：\n\n{}", sys_prompt, text);
+    // Ollama /api/generate 是单一 prompt 字符串，没有 system/user 角色区分，
+    // 这里手动拼接：system prompt 在前，user 消息（中性标签包裹）在后。
+    let combined = format!("{}\n\n{}", sys_prompt, wrap_user_text(text));
 
     let model = if config.model.is_empty() {
         "qwen2.5:7b"

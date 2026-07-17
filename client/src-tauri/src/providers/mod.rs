@@ -1,6 +1,7 @@
 // 转写供应商模块 — ASR 和 AI 的 trait 定义及具体实现
 
 pub mod types;
+pub mod prompt;
 pub mod ai_openai_compat;
 pub mod ai_ollama;
 pub mod asr_doubao;

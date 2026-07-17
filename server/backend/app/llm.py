@@ -40,6 +40,13 @@ _DEFAULT_SYSTEM_PROMPT = """\
 
 _DEFAULT_USER_PREFIX = "请校对以下 <asr_text> 标签内的语音转写文本：\n\n<asr_text>"
 
+# 桌面客户端模式下用户消息的外壳：不含任何动词/祈使句，只用一对标签给待清洗文本
+# 标出边界（模型输出后会被 _strip_thinking 清掉，不会混进结果）。这条壳文字固定、
+# 不可配置——桌面模式的全部 prompt 措辞（风格、约束）都由客户端的 system_prompt
+# 决定，服务器不再额外"发出"任何指令，避免壳文字与文本内容本身恰好都是祈使句时
+# （如 ASR 说的是"请执行"）被模型误当成连续指令。
+_DESKTOP_USER_WRAPPER = "<asr_text>\n{text}\n</asr_text>"
+
 
 class LLMEngine:
     def __init__(self, profile: LLMProfile) -> None:
@@ -54,12 +61,20 @@ class LLMEngine:
 
     # ── public API ──
 
-    async def polish(self, text: str, system_prompt: str | None = None) -> tuple[str, int, dict]:
-        """Polish text, return (result, elapsed_ms, debug_info)."""
+    async def polish(
+        self, text: str, system_prompt: str | None = None, *, is_web_demo: bool = False,
+    ) -> tuple[str, int, dict]:
+        """Polish text, return (result, elapsed_ms, debug_info).
+
+        is_web_demo=False（桌面客户端，默认）：system prompt 完全由调用方（客户端）
+        提供，用户消息用固定的中性标签包一下，服务器不额外拼任何指令措辞。
+        is_web_demo=True：网页体验版没有客户端，永远使用服务器本地 prompts/ 目录下的
+        system.txt / user.txt（或内置默认值），忽略传入的 system_prompt（即使有）。
+        """
         if not text or not self._cfg.enabled:
             return text, 0, {"skipped": True}
 
-        messages = self._build_messages(text, system_prompt)
+        messages = self._build_messages(text, system_prompt, is_web_demo=is_web_demo)
         provider = self._cfg.provider.lower()
 
         try:
@@ -99,9 +114,22 @@ class LLMEngine:
 
     # ── internals ──
 
-    def _build_messages(self, text: str, system_prompt: str | None = None) -> list[dict]:
+    def _build_messages(
+        self, text: str, system_prompt: str | None = None, *, is_web_demo: bool = False,
+    ) -> list[dict]:
+        if not is_web_demo:
+            # 桌面模式：system prompt 全由客户端决定（服务器本地 system.txt 仅在客户端
+            # 异常未传时兜底）；用户消息固定用中性标签包裹，不含任何指令措辞。
+            sys_p = system_prompt or _read_prompt(
+                f"{self._cfg.prompt_dir}/system.txt", _DEFAULT_SYSTEM_PROMPT
+            )
+            user_content = _DESKTOP_USER_WRAPPER.format(text=text)
+            return [{"role": "system", "content": sys_p}, {"role": "user", "content": user_content}]
+
+        # Web demo：没有客户端，永远用服务器本地 prompts/ 目录（或内置默认值）兜底——
+        # 即使调用方误传了 system_prompt 也忽略，双重保险防止客户端预设泄露到公开体验页。
         d = self._cfg.prompt_dir
-        sys_p = system_prompt or _read_prompt(f"{d}/system.txt", _DEFAULT_SYSTEM_PROMPT)
+        sys_p = _read_prompt(f"{d}/system.txt", _DEFAULT_SYSTEM_PROMPT)
         user_prefix = _read_prompt(f"{d}/user.txt", _DEFAULT_USER_PREFIX)
         user_content = f"{user_prefix}{text}\n</asr_text>" if "<asr_text>" in user_prefix else f"{user_prefix}{text}"
         return [{"role": "system", "content": sys_p}, {"role": "user", "content": user_content}]
